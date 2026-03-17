@@ -36,7 +36,7 @@ End If
 Set Variable [ $curlOptions ; Value:
     "-X POST" &
     " -H \"Authorization: Bearer " & $apiKey & "\"" &
-    " -H \"Stripe-Version: 2023-10-16\""
+    " -H \"Stripe-Version: 2025-04-30\""
 ]
 
 Set Variable [ $response ; Value: "" ]

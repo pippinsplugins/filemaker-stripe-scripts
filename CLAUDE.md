@@ -29,7 +29,7 @@ FileMaker Pro scripts for Stripe payment integration using **Stripe Connect**. U
 
 ## Key Conventions
 
-- Stripe API version: 2023-10-16 (set via `Stripe-Version` header in each script)
+- Stripe API version: 2025-04-30 (set via `Stripe-Version` header in each script)
 - All API calls use Bearer token auth with the platform key
 - Error handling: every script checks for `JSONGetElement($response; "error.message")` after each API call
 - OAuth error responses use `error_description` instead of `error.message`

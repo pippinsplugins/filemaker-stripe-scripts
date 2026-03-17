@@ -25,7 +25,7 @@ Set Variable [ $url ; Value:
 Set Variable [ $curlOptions ; Value:
     "-X GET" &
     " -H \"Authorization: Bearer " & $apiKey & "\"" &
-    " -H \"Stripe-Version: 2023-10-16\""
+    " -H \"Stripe-Version: 2025-04-30\""
 ]
 
 # Step 4: Call the Stripe API
