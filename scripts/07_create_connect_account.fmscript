@@ -1,0 +1,69 @@
+# FileMaker Script: Start Stripe Connect OAuth Flow
+# Purpose: Generates an OAuth authorization URL for a user to connect their existing
+#          Stripe account to your platform
+# Stripe OAuth: https://connect.stripe.com/oauth/authorize
+#
+# Users already have their own Stripe accounts. This script generates a URL that
+# sends them to Stripe's OAuth page where they authorize your platform to create
+# charges on their behalf. After authorization, Stripe redirects them back with
+# an authorization code that you exchange for their connected account ID.
+#
+# Flow:
+#   1. Generate OAuth URL (this script)
+#   2. User clicks URL → authorizes on Stripe → redirected back with ?code=xxx
+#   3. Exchange the code for the account ID (script 08)
+# ---
+
+# Step 1: Get the platform's Stripe client ID (different from API key)
+# The client ID is found in Stripe Dashboard → Settings → Connect → Platform settings
+Set Variable [ $clientID ; Value: GetFieldValue("StripeConfig::ConnectClientID") ]
+
+If [ IsEmpty($clientID) ]
+    Show Custom Dialog [ "Configuration Error" ;
+        "Stripe Connect Client ID is not configured. " &
+        "Find it in your Stripe Dashboard under Settings → Connect settings." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 2: Set the redirect URI
+# This is where Stripe sends the user after they authorize (or deny) the connection.
+# Must match exactly what's configured in your Stripe Connect settings.
+Set Variable [ $redirectUri ; Value: GetFieldValue("StripeConfig::ConnectRedirectURI") ]
+
+If [ IsEmpty($redirectUri) ]
+    Show Custom Dialog [ "Configuration Error" ;
+        "Connect Redirect URI is not configured in StripeConfig." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Generate a unique state parameter for CSRF protection
+# Store this to verify when the user returns
+Set Variable [ $state ; Value: Get(UUID) ]
+
+# Step 4: Store the state for verification later
+Set Field [ ConnectedAccounts::OAuthState ; $state ]
+Set Field [ ConnectedAccounts::OAuthStarted ; Get(CurrentTimestamp) ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Step 5: Build the OAuth authorization URL
+Set Variable [ $oauthUrl ; Value:
+    "https://connect.stripe.com/oauth/authorize" &
+    "?response_type=code" &
+    "&client_id=" & $clientID &
+    "&scope=read_write" &
+    "&redirect_uri=" & GetAsURLEncoded($redirectUri) &
+    "&state=" & $state &
+    "&stripe_landing=login"
+]
+# Note: stripe_landing=login tells Stripe to show the login form (since users
+# already have accounts) rather than the registration form.
+
+# Step 6: Open the OAuth URL in the user's browser
+Open URL [ With dialog: Off ; $oauthUrl ]
+
+Show Custom Dialog [ "Connect Your Stripe Account" ;
+    "A browser window has been opened for the user to connect their Stripe account." &
+    "¶¶Once they authorize the connection, they will be redirected back. " &
+    "Then run 'Complete Connect OAuth' with the authorization code from the redirect URL." ]
+
+Exit Script [ Text Result: $oauthUrl ]

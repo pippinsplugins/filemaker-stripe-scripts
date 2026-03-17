@@ -1,0 +1,72 @@
+# FileMaker Script: Check Connected Account Status
+# Purpose: Retrieves the current status of a connected Stripe account
+# Stripe API: GET https://api.stripe.com/v1/accounts/{acct_id}
+#
+# Use this to verify a connected account can accept charges, or to refresh
+# the stored account details.
+# ---
+
+# Step 1: Get the platform's Stripe API key
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+
+# Step 2: Get the connected account ID
+Set Variable [ $accountID ; Value: Get(ScriptParameter) ]
+If [ IsEmpty($accountID) ]
+    Set Variable [ $accountID ; Value: ConnectedAccounts::StripeAccountID ]
+End If
+
+If [ IsEmpty($accountID) ]
+    Show Custom Dialog [ "Error" ; "No Stripe connected account ID found." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Retrieve the account
+Set Variable [ $curlOptions ; Value:
+    "-X GET" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2023-10-16\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/accounts/" & $accountID ;
+    cURL options: $curlOptions ]
+
+# Step 4: Check for errors
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to retrieve account: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 5: Extract account status
+Set Variable [ $chargesEnabled ; Value: JSONGetElement($response ; "charges_enabled") ]
+Set Variable [ $payoutsEnabled ; Value: JSONGetElement($response ; "payouts_enabled") ]
+Set Variable [ $businessName ; Value: JSONGetElement($response ; "business_profile.name") ]
+Set Variable [ $email ; Value: JSONGetElement($response ; "email") ]
+
+# Step 6: Update FileMaker record
+Set Field [ ConnectedAccounts::ChargesEnabled ; $chargesEnabled ]
+Set Field [ ConnectedAccounts::PayoutsEnabled ; $payoutsEnabled ]
+Set Field [ ConnectedAccounts::BusinessName ; $businessName ]
+Set Field [ ConnectedAccounts::LastChecked ; Get(CurrentTimestamp) ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Step 7: Display status
+If [ $chargesEnabled = "true" ]
+    Show Custom Dialog [ "Account Active" ;
+        "Account " & $accountID & " is ready to accept charges." &
+        "¶Business: " & $businessName &
+        "¶Email: " & $email &
+        "¶Charges: Enabled" &
+        "¶Payouts: " & If($payoutsEnabled = "true" ; "Enabled" ; "Disabled") ]
+Else
+    Show Custom Dialog [ "Account Not Ready" ;
+        "Account " & $accountID & " cannot accept charges." &
+        "¶Business: " & $businessName &
+        "¶Charges: Disabled" &
+        "¶Payouts: " & If($payoutsEnabled = "true" ; "Enabled" ; "Disabled") &
+        "¶¶The user may need to complete additional verification on their Stripe account." ]
+End If
+
+Exit Script [ Text Result: If($chargesEnabled = "true" ; "active" ; "inactive") ]

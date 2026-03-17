@@ -1,0 +1,78 @@
+# FileMaker Script: Disconnect a Stripe Connected Account
+# Purpose: Revokes the OAuth connection between your platform and a connected account
+# Stripe API: POST https://connect.stripe.com/oauth/deauthorize
+#
+# This revokes your platform's access to the connected account. The user's Stripe
+# account continues to exist — only the connection to your platform is removed.
+# ---
+
+# Step 1: Get platform credentials
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+Set Variable [ $clientID ; Value: GetFieldValue("StripeConfig::ConnectClientID") ]
+
+# Step 2: Get the connected account ID
+Set Variable [ $accountID ; Value: Get(ScriptParameter) ]
+If [ IsEmpty($accountID) ]
+    Set Variable [ $accountID ; Value: ConnectedAccounts::StripeAccountID ]
+End If
+
+If [ IsEmpty($accountID) ]
+    Show Custom Dialog [ "Error" ; "No connected account to disconnect." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Confirm disconnection
+Show Custom Dialog [ "Confirm Disconnect" ;
+    "Are you sure you want to disconnect Stripe account " & $accountID & "?" &
+    "¶¶This will revoke your platform's access. You will no longer be able to " &
+    "create charges on this account. The user's Stripe account is not affected." ;
+    Button 1: "Cancel" ; Button 2: "Disconnect" ]
+
+If [ Get(LastMessageChoice) = 1 ]
+    Exit Script [ Text Result: "cancelled" ]
+End If
+
+# Step 4: Revoke the OAuth connection
+Set Variable [ $postData ; Value:
+    "client_id=" & $clientID &
+    "&stripe_user_id=" & $accountID
+]
+
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $postData & "\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://connect.stripe.com/oauth/deauthorize" ;
+    cURL options: $curlOptions ]
+
+# Step 5: Check for errors
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error_description") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to disconnect: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 6: Verify disconnection
+Set Variable [ $revokedID ; Value: JSONGetElement($response ; "stripe_user_id") ]
+
+If [ $revokedID = $accountID ]
+    # Clear the connection data in FileMaker
+    Set Field [ ConnectedAccounts::IsConnected ; 0 ]
+    Set Field [ ConnectedAccounts::AccessToken ; "" ]
+    Set Field [ ConnectedAccounts::RefreshToken ; "" ]
+    Set Field [ ConnectedAccounts::ChargesEnabled ; "" ]
+    Set Field [ ConnectedAccounts::PayoutsEnabled ; "" ]
+    Set Field [ ConnectedAccounts::DisconnectedDate ; Get(CurrentTimestamp) ]
+    Commit Records/Requests [ With dialog: Off ]
+
+    Show Custom Dialog [ "Disconnected" ; "Stripe account " & $accountID & " has been disconnected." ]
+Else
+    Show Custom Dialog [ "Warning" ; "Unexpected response. Check the account status manually." ]
+End If
+
+Exit Script [ Text Result: "success" ]

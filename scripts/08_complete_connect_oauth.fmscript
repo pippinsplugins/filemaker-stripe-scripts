@@ -1,0 +1,122 @@
+# FileMaker Script: Complete Stripe Connect OAuth
+# Purpose: Exchanges the OAuth authorization code for the connected account ID
+# Stripe API: POST https://connect.stripe.com/oauth/token
+#
+# After the user authorizes on Stripe, they are redirected to your redirect_uri
+# with ?code=ac_xxx&state=xxx in the URL. This script exchanges that code for
+# the connected account's Stripe account ID (acct_xxx).
+#
+# Script Parameter: JSON with "code" and "state"
+# Example: {"code": "ac_xxxxx", "state": "uuid-from-step-1"}
+# ---
+
+# Step 1: Get the platform's Stripe API key
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+
+# Step 2: Get the authorization code from the script parameter
+Set Variable [ $params ; Value: Get(ScriptParameter) ]
+Set Variable [ $authCode ; Value: JSONGetElement($params ; "code") ]
+Set Variable [ $state ; Value: JSONGetElement($params ; "state") ]
+
+If [ IsEmpty($authCode) ]
+    # If no script parameter, prompt for the code
+    Show Custom Dialog [ "Enter Authorization Code" ;
+        "Paste the authorization code (ac_xxx) from the redirect URL:" ;
+        Input Field: ConnectedAccounts::TempAuthCode ]
+
+    If [ Get(LastMessageChoice) = 1 ]
+        Exit Script [ Text Result: "cancelled" ]
+    End If
+
+    Set Variable [ $authCode ; Value: ConnectedAccounts::TempAuthCode ]
+End If
+
+If [ IsEmpty($authCode) ]
+    Show Custom Dialog [ "Error" ; "No authorization code provided." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Verify the state parameter (CSRF protection)
+If [ not IsEmpty($state) ]
+    Set Variable [ $expectedState ; Value: ConnectedAccounts::OAuthState ]
+    If [ $state <> $expectedState ]
+        Show Custom Dialog [ "Security Error" ;
+            "The state parameter does not match. This may indicate a CSRF attack. " &
+            "Please restart the connection process." ]
+        Exit Script [ Text Result: "error" ]
+    End If
+End If
+
+# Step 4: Exchange the authorization code for the account credentials
+Set Variable [ $postData ; Value:
+    "grant_type=authorization_code" &
+    "&code=" & $authCode
+]
+
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $postData & "\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://connect.stripe.com/oauth/token" ;
+    cURL options: $curlOptions ]
+
+# Step 5: Check for errors
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error_description") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to complete connection: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 6: Extract the connected account ID and other details
+Set Variable [ $accountID ; Value: JSONGetElement($response ; "stripe_user_id") ]
+Set Variable [ $accessToken ; Value: JSONGetElement($response ; "access_token") ]
+Set Variable [ $refreshToken ; Value: JSONGetElement($response ; "refresh_token") ]
+Set Variable [ $livemode ; Value: JSONGetElement($response ; "livemode") ]
+
+# Step 7: Store the connected account details in FileMaker
+Set Field [ ConnectedAccounts::StripeAccountID ; $accountID ]
+Set Field [ ConnectedAccounts::AccessToken ; $accessToken ]
+Set Field [ ConnectedAccounts::RefreshToken ; $refreshToken ]
+Set Field [ ConnectedAccounts::Livemode ; $livemode ]
+Set Field [ ConnectedAccounts::ConnectedDate ; Get(CurrentTimestamp) ]
+Set Field [ ConnectedAccounts::IsConnected ; 1 ]
+
+# Clear temporary fields
+Set Field [ ConnectedAccounts::TempAuthCode ; "" ]
+Set Field [ ConnectedAccounts::OAuthState ; "" ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Step 8: Retrieve account details to confirm
+Set Variable [ $curlOptions ; Value:
+    "-X GET" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2023-10-16\""
+]
+
+Set Variable [ $acctResponse ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $acctResponse ;
+    URL: "https://api.stripe.com/v1/accounts/" & $accountID ;
+    cURL options: $curlOptions ]
+
+Set Variable [ $businessName ; Value: JSONGetElement($acctResponse ; "business_profile.name") ]
+Set Variable [ $chargesEnabled ; Value: JSONGetElement($acctResponse ; "charges_enabled") ]
+Set Variable [ $payoutsEnabled ; Value: JSONGetElement($acctResponse ; "payouts_enabled") ]
+
+Set Field [ ConnectedAccounts::BusinessName ; $businessName ]
+Set Field [ ConnectedAccounts::ChargesEnabled ; $chargesEnabled ]
+Set Field [ ConnectedAccounts::PayoutsEnabled ; $payoutsEnabled ]
+Commit Records/Requests [ With dialog: Off ]
+
+Show Custom Dialog [ "Connection Successful" ;
+    "Stripe account connected!" &
+    "¶Account: " & $accountID &
+    "¶Business: " & $businessName &
+    "¶Charges enabled: " & $chargesEnabled &
+    "¶Mode: " & If($livemode = "true" ; "Live" ; "Test") ]
+
+Exit Script [ Text Result: $accountID ]

@@ -1,0 +1,47 @@
+# FileMaker Script: Create Stripe Express Dashboard Link
+# Purpose: Generates a link for a connected account user to access their Stripe Express Dashboard
+# Stripe API: POST https://api.stripe.com/v1/accounts/{acct_id}/login_links
+#
+# Express accounts can't access the full Stripe Dashboard. Instead, they use
+# an Express Dashboard where they can view payouts, transactions, and update
+# their bank account info. This script creates a single-use login link.
+# ---
+
+# Step 1: Get the platform's Stripe API key
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+
+# Step 2: Get the connected account ID
+Set Variable [ $accountID ; Value: Get(ScriptParameter) ]
+If [ IsEmpty($accountID) ]
+    Set Variable [ $accountID ; Value: ConnectedAccounts::StripeAccountID ]
+End If
+
+If [ IsEmpty($accountID) ]
+    Show Custom Dialog [ "Error" ; "No Stripe connected account ID found." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Create the login link
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2023-10-16\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/accounts/" & $accountID & "/login_links" ;
+    cURL options: $curlOptions ]
+
+# Step 4: Check for errors
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to create dashboard link: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 5: Open the dashboard link
+Set Variable [ $dashboardUrl ; Value: JSONGetElement($response ; "url") ]
+Open URL [ With dialog: Off ; $dashboardUrl ]
+
+Exit Script [ Text Result: $dashboardUrl ]

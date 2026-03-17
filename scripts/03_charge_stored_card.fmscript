@@ -1,9 +1,11 @@
-# FileMaker Script: Process a Charge to a Stored Card
-# Purpose: Creates a PaymentIntent to charge a stored PaymentMethod
+# FileMaker Script: Process a Charge to a Stored Card (Stripe Connect)
+# Purpose: Creates a PaymentIntent to charge a stored PaymentMethod,
+#          routing funds to a connected Express account with an application fee
 # Stripe API: POST https://api.stripe.com/v1/payment_intents
 #
-# This uses the PaymentIntents API (recommended) rather than the legacy Charges API.
-# The PaymentIntent is created with confirm=true to immediately attempt the charge.
+# This uses the PaymentIntents API with Stripe Connect destination charges.
+# The charge is created on the platform, with funds automatically transferred
+# to the connected account minus the application fee.
 # ---
 
 # Step 1: Get the Stripe API key
@@ -12,6 +14,7 @@ Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
 # Step 2: Get required data
 Set Variable [ $customerID ; Value: Customers::StripeCustomerID ]
 Set Variable [ $paymentMethodID ; Value: Customers::DefaultPaymentMethod ]
+Set Variable [ $connectedAccountID ; Value: ConnectedAccounts::StripeAccountID ]
 
 # Validate
 If [ IsEmpty($customerID) ]
@@ -21,6 +24,11 @@ End If
 
 If [ IsEmpty($paymentMethodID) ]
     Show Custom Dialog [ "Error" ; "No stored payment method found. Add a card first." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+If [ IsEmpty($connectedAccountID) ]
+    Show Custom Dialog [ "Error" ; "No connected Stripe account found. The merchant must complete Stripe onboarding first." ]
     Exit Script [ Text Result: "error" ]
 End If
 
@@ -46,7 +54,16 @@ If [ $amount < 50 ]
     Exit Script [ Text Result: "error" ]
 End If
 
-# Step 4: Build the PaymentIntent request
+# Step 3b: Calculate the application fee
+# The application fee is what your platform keeps from each charge.
+# Configure the fee percentage in StripeConfig, or pass via script parameter.
+Set Variable [ $feePercent ; Value: GetFieldValue("StripeConfig::ApplicationFeePercent") ]
+If [ IsEmpty($feePercent) ]
+    Set Variable [ $feePercent ; Value: 10 ]  // Default 10% if not configured
+End If
+Set Variable [ $applicationFee ; Value: Round($amount * ($feePercent / 100) ; 0) ]  // in cents
+
+# Step 4: Build the PaymentIntent request with Connect destination charge
 Set Variable [ $postData ; Value:
     "amount=" & $amount &
     "&currency=" & $currency &
@@ -54,11 +71,15 @@ Set Variable [ $postData ; Value:
     "&payment_method=" & $paymentMethodID &
     "&description=" & GetAsURLEncoded($description) &
     "&confirm=true" &
-    "&off_session=true"
+    "&off_session=true" &
+    "&application_fee_amount=" & $applicationFee &
+    "&transfer_data[destination]=" & $connectedAccountID
 ]
 
-# Note: off_session=true tells Stripe this is a merchant-initiated charge
-# without the customer present. This is appropriate for stored card charges.
+# Note: This creates a "destination charge" — the charge is created on the platform
+# account, the customer pays the platform, and Stripe automatically transfers
+# (amount - application_fee_amount) to the connected account.
+# off_session=true tells Stripe this is a merchant-initiated charge.
 
 Set Variable [ $curlOptions ; Value:
     "-X POST" &
@@ -105,7 +126,10 @@ If [ $status = "succeeded" ]
     Set Field [ Payments::StripePaymentIntentID ; $paymentIntentID ]
     Set Field [ Payments::StripeChargeID ; $chargeID ]
     Set Field [ Payments::CustomerID_FK ; Customers::CustomerID ]
+    Set Field [ Payments::ConnectedAccountID ; $connectedAccountID ]
     Set Field [ Payments::Amount ; $amount / 100 ]  // Convert cents back to dollars
+    Set Field [ Payments::ApplicationFee ; $applicationFee / 100 ]  // Convert cents back to dollars
+    Set Field [ Payments::NetToConnectedAccount ; ($amount - $applicationFee) / 100 ]
     Set Field [ Payments::Currency ; $currency ]
     Set Field [ Payments::Status ; "succeeded" ]
     Set Field [ Payments::Description ; $description ]
