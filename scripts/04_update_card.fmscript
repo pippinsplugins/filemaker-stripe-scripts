@@ -1,0 +1,84 @@
+# FileMaker Script: Update a Stored Card
+# Purpose: Updates billing details or metadata on an existing PaymentMethod
+# Stripe API: POST https://api.stripe.com/v1/payment_methods/{pm_id}
+#
+# Note: You cannot update the card number, expiration, or CVC on an existing
+# PaymentMethod. To change those, delete the old card and add a new one.
+# You CAN update: billing_details (name, email, phone, address) and metadata.
+#
+# To replace a card entirely (new number/exp), use scripts 05 (delete) + 02 (add).
+# ---
+
+# Step 1: Get the Stripe API key
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+
+# Step 2: Get the PaymentMethod ID to update
+# Option A: From script parameter
+Set Variable [ $paymentMethodID ; Value: Get(ScriptParameter) ]
+
+# Option B: From the current PaymentMethods record
+If [ IsEmpty($paymentMethodID) ]
+    Set Variable [ $paymentMethodID ; Value: PaymentMethods::StripePaymentMethodID ]
+End If
+
+If [ IsEmpty($paymentMethodID) ]
+    Show Custom Dialog [ "Error" ; "No payment method specified to update." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Collect updated billing details
+Set Variable [ $billingName ; Value: Customers::FirstName & " " & Customers::LastName ]
+Set Variable [ $billingEmail ; Value: Customers::Email ]
+Set Variable [ $billingPhone ; Value: Customers::Phone ]
+Set Variable [ $billingLine1 ; Value: Customers::Address1 ]
+Set Variable [ $billingLine2 ; Value: Customers::Address2 ]
+Set Variable [ $billingCity ; Value: Customers::City ]
+Set Variable [ $billingState ; Value: Customers::State ]
+Set Variable [ $billingPostal ; Value: Customers::PostalCode ]
+Set Variable [ $billingCountry ; Value: Customers::Country ]  // 2-letter ISO code (US, CA, GB, etc.)
+
+# Step 4: Build the update request
+Set Variable [ $postData ; Value:
+    "billing_details[name]=" & GetAsURLEncoded($billingName) &
+    "&billing_details[email]=" & GetAsURLEncoded($billingEmail) &
+    "&billing_details[phone]=" & GetAsURLEncoded($billingPhone) &
+    "&billing_details[address][line1]=" & GetAsURLEncoded($billingLine1) &
+    "&billing_details[address][line2]=" & GetAsURLEncoded($billingLine2) &
+    "&billing_details[address][city]=" & GetAsURLEncoded($billingCity) &
+    "&billing_details[address][state]=" & GetAsURLEncoded($billingState) &
+    "&billing_details[address][postal_code]=" & GetAsURLEncoded($billingPostal) &
+    "&billing_details[address][country]=" & GetAsURLEncoded($billingCountry)
+]
+
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2023-10-16\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $postData & "\""
+]
+
+# Step 5: Send the update request
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/payment_methods/" & $paymentMethodID ;
+    cURL options: $curlOptions ]
+
+# Step 6: Check for errors
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to update payment method: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 7: Confirm the update
+Set Variable [ $updatedName ; Value: JSONGetElement($response ; "billing_details.name") ]
+Show Custom Dialog [ "Success" ; "Payment method updated for: " & $updatedName ]
+
+# Step 8: Update the local FileMaker record if on PaymentMethods layout
+If [ Get(LayoutName) = "PaymentMethods" ]
+    Set Field [ PaymentMethods::BillingName ; $updatedName ]
+    Commit Records/Requests [ With dialog: Off ]
+End If
+
+Exit Script [ Text Result: "success" ]

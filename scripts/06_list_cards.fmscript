@@ -1,0 +1,108 @@
+# FileMaker Script: Retrieve List of Stored Cards
+# Purpose: Gets all PaymentMethods (cards) attached to a Stripe customer and syncs to FileMaker
+# Stripe API: GET https://api.stripe.com/v1/payment_methods?customer={cus_id}&type=card
+# ---
+
+# Step 1: Get the Stripe API key
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+
+# Step 2: Get the customer's Stripe ID
+Set Variable [ $customerID ; Value: Customers::StripeCustomerID ]
+
+If [ IsEmpty($customerID) ]
+    Show Custom Dialog [ "Error" ; "No Stripe customer ID found. Create the customer in Stripe first." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Build the request (GET with query parameters)
+Set Variable [ $url ; Value:
+    "https://api.stripe.com/v1/payment_methods" &
+    "?customer=" & $customerID &
+    "&type=card" &
+    "&limit=100"
+]
+
+Set Variable [ $curlOptions ; Value:
+    "-X GET" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2023-10-16\""
+]
+
+# Step 4: Call the Stripe API
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: $url ;
+    cURL options: $curlOptions ]
+
+# Step 5: Check for errors
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to retrieve cards: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 6: Parse the response
+Set Variable [ $cardCount ; Value: ValueCount(JSONListKeys($response ; "data" ; JSONNumber)) ]
+# Note: JSONListKeys on the "data" array returns indices 0, 1, 2, etc.
+
+If [ $cardCount = 0 ]
+    Show Custom Dialog [ "No Cards" ; "This customer has no stored cards in Stripe." ]
+    Exit Script [ Text Result: "none" ]
+End If
+
+# Step 7: Get the customer's default payment method for comparison
+Set Variable [ $defaultPMUrl ; Value: "https://api.stripe.com/v1/customers/" & $customerID ]
+Set Variable [ $custResponse ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $custResponse ;
+    URL: $defaultPMUrl ;
+    cURL options: $curlOptions ]
+Set Variable [ $defaultPM ; Value: JSONGetElement($custResponse ; "invoice_settings.default_payment_method") ]
+
+# Step 8: Sync cards to the PaymentMethods table in FileMaker
+# First, clear existing records for this customer to avoid duplicates
+Set Variable [ $currentLayout ; Value: Get(LayoutName) ]
+Go to Layout [ "PaymentMethods" ; Animation: None ]
+Enter Find Mode [ Pause: Off ]
+Set Field [ PaymentMethods::StripeCustomerID ; $customerID ]
+Perform Find []
+If [ Get(FoundCount) > 0 ]
+    Delete All Records [ With dialog: Off ]
+End If
+
+# Step 9: Loop through each card and create a FileMaker record
+Set Variable [ $i ; Value: 0 ]
+Loop
+    Exit Loop If [ $i >= $cardCount ]
+
+    # Extract card data from the JSON array
+    Set Variable [ $pmID ; Value: JSONGetElement($response ; "data[" & $i & "].id") ]
+    Set Variable [ $last4 ; Value: JSONGetElement($response ; "data[" & $i & "].card.last4") ]
+    Set Variable [ $brand ; Value: JSONGetElement($response ; "data[" & $i & "].card.brand") ]
+    Set Variable [ $expMonth ; Value: JSONGetElement($response ; "data[" & $i & "].card.exp_month") ]
+    Set Variable [ $expYear ; Value: JSONGetElement($response ; "data[" & $i & "].card.exp_year") ]
+    Set Variable [ $billingName ; Value: JSONGetElement($response ; "data[" & $i & "].billing_details.name") ]
+
+    # Create a new record
+    New Record/Request
+    Set Field [ PaymentMethods::StripePaymentMethodID ; $pmID ]
+    Set Field [ PaymentMethods::CustomerID_FK ; Customers::CustomerID ]
+    Set Field [ PaymentMethods::StripeCustomerID ; $customerID ]
+    Set Field [ PaymentMethods::CardLast4 ; $last4 ]
+    Set Field [ PaymentMethods::CardBrand ; $brand ]
+    Set Field [ PaymentMethods::CardExpMonth ; $expMonth ]
+    Set Field [ PaymentMethods::CardExpYear ; $expYear ]
+    Set Field [ PaymentMethods::BillingName ; $billingName ]
+    Set Field [ PaymentMethods::IsDefault ; If($pmID = $defaultPM ; 1 ; 0) ]
+    Commit Records/Requests [ With dialog: Off ]
+
+    Set Variable [ $i ; Value: $i + 1 ]
+End Loop
+
+# Step 10: Update the customer's default payment method in FileMaker
+Go to Layout [ $currentLayout ]
+Set Field [ Customers::DefaultPaymentMethod ; $defaultPM ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Step 11: Report results
+Show Custom Dialog [ "Cards Retrieved" ; $cardCount & " card(s) found and synced to FileMaker." ]
+Exit Script [ Text Result: $cardCount ]

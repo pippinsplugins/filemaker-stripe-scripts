@@ -1,0 +1,140 @@
+# FileMaker Script: Add Credit Card to Stripe Customer
+# Purpose: Attaches a PaymentMethod (card) to a customer and stores the token in FileMaker
+# Stripe API: POST https://api.stripe.com/v1/payment_methods (create)
+#             POST https://api.stripe.com/v1/payment_methods/{pm_id}/attach (attach to customer)
+#
+# IMPORTANT: In production, card details should be collected via Stripe.js or Stripe Elements
+# on a web viewer to maintain PCI compliance. This script assumes you have already collected
+# a PaymentMethod ID (pm_xxx) from a client-side tokenization flow.
+#
+# If you need to create the PaymentMethod server-side (for testing only), the first section
+# shows how. For production, skip to "ATTACH PAYMENT METHOD" below.
+# ---
+
+# ============================================================
+# OPTION A: Create PaymentMethod server-side (TESTING ONLY)
+# ============================================================
+
+# Step 1: Get the Stripe API key
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+
+# Step 2: Get the customer's Stripe ID
+Set Variable [ $customerID ; Value: Customers::StripeCustomerID ]
+If [ IsEmpty($customerID) ]
+    Show Custom Dialog [ "Error" ; "This customer does not have a Stripe customer ID. Run 'Create Customer' first." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Collect card details (TESTING ONLY - use Stripe.js in production)
+Set Variable [ $cardNumber ; Value: Customers::TempCardNumber ]
+Set Variable [ $expMonth ; Value: Customers::TempExpMonth ]
+Set Variable [ $expYear ; Value: Customers::TempExpYear ]
+Set Variable [ $cvc ; Value: Customers::TempCVC ]
+
+# Step 4: Create the PaymentMethod
+Set Variable [ $postData ; Value:
+    "type=card" &
+    "&card[number]=" & $cardNumber &
+    "&card[exp_month]=" & $expMonth &
+    "&card[exp_year]=" & $expYear &
+    "&card[cvc]=" & $cvc
+]
+
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2023-10-16\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $postData & "\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/payment_methods" ;
+    cURL options: $curlOptions ]
+
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to create payment method: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+Set Variable [ $paymentMethodID ; Value: JSONGetElement($response ; "id") ]
+
+# ============================================================
+# OPTION B: If you already have a pm_xxx from Stripe.js,
+# set $paymentMethodID to that value and start here.
+# ============================================================
+
+# ATTACH PAYMENT METHOD TO CUSTOMER
+
+# Step 5: Attach the PaymentMethod to the customer
+Set Variable [ $attachData ; Value: "customer=" & $customerID ]
+
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2023-10-16\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $attachData & "\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/payment_methods/" & $paymentMethodID & "/attach" ;
+    cURL options: $curlOptions ]
+
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to attach card: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 6: Optionally set as the default payment method for invoices
+Set Variable [ $defaultData ; Value:
+    "invoice_settings[default_payment_method]=" & $paymentMethodID
+]
+
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2023-10-16\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $defaultData & "\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/customers/" & $customerID ;
+    cURL options: $curlOptions ]
+
+# Step 7: Store the PaymentMethod token in FileMaker
+# Extract card details for display (last4, brand, expiry)
+Set Variable [ $last4 ; Value: JSONGetElement($response ; "card.last4") ]
+Set Variable [ $brand ; Value: JSONGetElement($response ; "card.brand") ]
+
+# Navigate to the PaymentMethods portal or table and create a record
+Go to Layout [ "PaymentMethods" ; Animation: None ]
+New Record/Request
+Set Field [ PaymentMethods::StripePaymentMethodID ; $paymentMethodID ]
+Set Field [ PaymentMethods::CustomerID_FK ; Customers::CustomerID ]
+Set Field [ PaymentMethods::StripeCustomerID ; $customerID ]
+Set Field [ PaymentMethods::CardLast4 ; $last4 ]
+Set Field [ PaymentMethods::CardBrand ; $brand ]
+Set Field [ PaymentMethods::IsDefault ; 1 ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Step 8: Update the customer record with the default payment method
+Go to Layout [ original layout ]
+Set Field [ Customers::DefaultPaymentMethod ; $paymentMethodID ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Step 9: Clear temporary card fields (TESTING ONLY)
+Set Field [ Customers::TempCardNumber ; "" ]
+Set Field [ Customers::TempExpMonth ; "" ]
+Set Field [ Customers::TempExpYear ; "" ]
+Set Field [ Customers::TempCVC ; "" ]
+Commit Records/Requests [ With dialog: Off ]
+
+Show Custom Dialog [ "Success" ; "Card added successfully (" & $brand & " ending in " & $last4 & ")" ]
+Exit Script [ Text Result: $paymentMethodID ]

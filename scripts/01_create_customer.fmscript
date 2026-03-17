@@ -1,0 +1,54 @@
+# FileMaker Script: Create Stripe Customer
+# Purpose: Creates a new customer in Stripe and stores the customer ID in FileMaker
+# Stripe API: POST https://api.stripe.com/v1/customers
+# ---
+
+# Step 1: Get the Stripe API key
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+
+# Step 2: Collect customer data from the current record
+Set Variable [ $email ; Value: Customers::Email ]
+Set Variable [ $name ; Value: Customers::FirstName & " " & Customers::LastName ]
+Set Variable [ $phone ; Value: Customers::Phone ]
+Set Variable [ $description ; Value: Customers::Notes ]
+
+# Step 3: Build the POST body (form-encoded as Stripe requires)
+Set Variable [ $postData ; Value:
+    "email=" & GetAsURLEncoded($email) &
+    "&name=" & GetAsURLEncoded($name) &
+    "&phone=" & GetAsURLEncoded($phone) &
+    "&description=" & GetAsURLEncoded($description)
+]
+
+# Step 4: Build cURL options for Insert from URL
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2023-10-16\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $postData & "\""
+]
+
+# Step 5: Call the Stripe API
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/customers" ;
+    cURL options: $curlOptions ]
+
+# Step 6: Check for errors
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to create customer: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 7: Extract the customer ID from the response
+Set Variable [ $customerID ; Value: JSONGetElement($response ; "id") ]
+
+# Step 8: Store the Stripe customer ID in the current record
+Set Field [ Customers::StripeCustomerID ; $customerID ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Step 9: Confirm success
+Show Custom Dialog [ "Success" ; "Stripe customer created: " & $customerID ]
+Exit Script [ Text Result: $customerID ]

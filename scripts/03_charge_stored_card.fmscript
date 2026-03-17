@@ -1,0 +1,130 @@
+# FileMaker Script: Process a Charge to a Stored Card
+# Purpose: Creates a PaymentIntent to charge a stored PaymentMethod
+# Stripe API: POST https://api.stripe.com/v1/payment_intents
+#
+# This uses the PaymentIntents API (recommended) rather than the legacy Charges API.
+# The PaymentIntent is created with confirm=true to immediately attempt the charge.
+# ---
+
+# Step 1: Get the Stripe API key
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+
+# Step 2: Get required data
+Set Variable [ $customerID ; Value: Customers::StripeCustomerID ]
+Set Variable [ $paymentMethodID ; Value: Customers::DefaultPaymentMethod ]
+
+# Validate
+If [ IsEmpty($customerID) ]
+    Show Custom Dialog [ "Error" ; "No Stripe customer ID found. Create the customer in Stripe first." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+If [ IsEmpty($paymentMethodID) ]
+    Show Custom Dialog [ "Error" ; "No stored payment method found. Add a card first." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Get charge amount and details
+# Script Parameter format: JSON with "amount", "currency", "description"
+# Example: {"amount": 5000, "currency": "usd", "description": "Invoice #1234"}
+Set Variable [ $params ; Value: Get(ScriptParameter) ]
+
+If [ IsEmpty($params) ]
+    # If no script parameter, get from fields on the current layout
+    Set Variable [ $amount ; Value: Round(Invoices::AmountDue * 100 ; 0) ]  // Stripe uses cents
+    Set Variable [ $currency ; Value: "usd" ]
+    Set Variable [ $description ; Value: "Invoice #" & Invoices::InvoiceNumber ]
+Else
+    Set Variable [ $amount ; Value: JSONGetElement($params ; "amount") ]
+    Set Variable [ $currency ; Value: JSONGetElement($params ; "currency") ]
+    Set Variable [ $description ; Value: JSONGetElement($params ; "description") ]
+End If
+
+# Validate amount
+If [ $amount < 50 ]
+    Show Custom Dialog [ "Error" ; "Charge amount must be at least $0.50 (50 cents)." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 4: Build the PaymentIntent request
+Set Variable [ $postData ; Value:
+    "amount=" & $amount &
+    "&currency=" & $currency &
+    "&customer=" & $customerID &
+    "&payment_method=" & $paymentMethodID &
+    "&description=" & GetAsURLEncoded($description) &
+    "&confirm=true" &
+    "&off_session=true"
+]
+
+# Note: off_session=true tells Stripe this is a merchant-initiated charge
+# without the customer present. This is appropriate for stored card charges.
+
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2023-10-16\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $postData & "\""
+]
+
+# Step 5: Create and confirm the PaymentIntent
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/payment_intents" ;
+    cURL options: $curlOptions ]
+
+# Step 6: Check for errors
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Set Variable [ $errorCode ; Value: JSONGetElement($response ; "error.code") ]
+
+    # Handle specific error: authentication_required means SCA/3DS is needed
+    If [ $errorCode = "authentication_required" ]
+        Show Custom Dialog [ "Authentication Required" ;
+            "This card requires additional authentication. " &
+            "The customer must complete this payment through a web interface." ]
+    Else
+        Show Custom Dialog [ "Stripe Error" ; "Payment failed: " & $errorMessage ]
+    End If
+
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 7: Check the PaymentIntent status
+Set Variable [ $status ; Value: JSONGetElement($response ; "status") ]
+Set Variable [ $paymentIntentID ; Value: JSONGetElement($response ; "id") ]
+
+If [ $status = "succeeded" ]
+    # Payment successful — record the transaction
+    Set Variable [ $chargeID ; Value: JSONGetElement($response ; "latest_charge") ]
+
+    # Create a payment record in FileMaker
+    Go to Layout [ "Payments" ; Animation: None ]
+    New Record/Request
+    Set Field [ Payments::StripePaymentIntentID ; $paymentIntentID ]
+    Set Field [ Payments::StripeChargeID ; $chargeID ]
+    Set Field [ Payments::CustomerID_FK ; Customers::CustomerID ]
+    Set Field [ Payments::Amount ; $amount / 100 ]  // Convert cents back to dollars
+    Set Field [ Payments::Currency ; $currency ]
+    Set Field [ Payments::Status ; "succeeded" ]
+    Set Field [ Payments::Description ; $description ]
+    Set Field [ Payments::PaymentDate ; Get(CurrentTimestamp) ]
+    Commit Records/Requests [ With dialog: Off ]
+    Go to Layout [ original layout ]
+
+    Show Custom Dialog [ "Payment Successful" ;
+        "Charged " & NumToJText($amount / 100 ; 1 ; 2) & " " & Upper($currency) &
+        "¶Payment ID: " & $paymentIntentID ]
+
+Else If [ $status = "requires_action" ]
+    Show Custom Dialog [ "Action Required" ;
+        "This payment requires additional customer authentication (3D Secure). " &
+        "Payment ID: " & $paymentIntentID ]
+
+Else
+    Show Custom Dialog [ "Payment Status" ;
+        "Payment status: " & $status & "¶Payment ID: " & $paymentIntentID ]
+End If
+
+Exit Script [ Text Result: $paymentIntentID ]

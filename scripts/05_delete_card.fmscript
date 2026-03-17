@@ -1,0 +1,88 @@
+# FileMaker Script: Delete a Stored Card
+# Purpose: Detaches a PaymentMethod from a customer (effectively deleting the stored card)
+# Stripe API: POST https://api.stripe.com/v1/payment_methods/{pm_id}/detach
+#
+# Note: Stripe doesn't truly "delete" PaymentMethods — it detaches them from the customer.
+# Once detached, the PaymentMethod can no longer be used for charges.
+# ---
+
+# Step 1: Get the Stripe API key
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+
+# Step 2: Get the PaymentMethod ID to delete
+# Option A: From script parameter
+Set Variable [ $paymentMethodID ; Value: Get(ScriptParameter) ]
+
+# Option B: From the current PaymentMethods record
+If [ IsEmpty($paymentMethodID) ]
+    Set Variable [ $paymentMethodID ; Value: PaymentMethods::StripePaymentMethodID ]
+End If
+
+If [ IsEmpty($paymentMethodID) ]
+    Show Custom Dialog [ "Error" ; "No payment method specified to delete." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Confirm deletion with the user
+Show Custom Dialog [ "Confirm Delete" ;
+    "Are you sure you want to remove this stored card (" & $paymentMethodID & ")?" ;
+    Button 1: "Cancel" ; Button 2: "Delete" ]
+
+If [ Get(LastMessageChoice) = 1 ]
+    Exit Script [ Text Result: "cancelled" ]
+End If
+
+# Step 4: Detach the PaymentMethod from the customer
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2023-10-16\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/payment_methods/" & $paymentMethodID & "/detach" ;
+    cURL options: $curlOptions ]
+
+# Step 5: Check for errors
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to delete payment method: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 6: Verify detachment
+Set Variable [ $customer ; Value: JSONGetElement($response ; "customer") ]
+If [ IsEmpty($customer) or $customer = "null" ]
+    # Successfully detached — customer field will be null
+
+    # Step 7: Check if this was the default payment method
+    Set Variable [ $wasDefault ; Value: (Customers::DefaultPaymentMethod = $paymentMethodID) ]
+
+    # Step 8: Delete the local FileMaker record
+    If [ Get(LayoutName) = "PaymentMethods" ]
+        Delete Record/Request [ With dialog: Off ]
+    Else
+        # Find and delete the PaymentMethods record
+        Go to Layout [ "PaymentMethods" ; Animation: None ]
+        Enter Find Mode [ Pause: Off ]
+        Set Field [ PaymentMethods::StripePaymentMethodID ; $paymentMethodID ]
+        Perform Find []
+        If [ Get(FoundCount) > 0 ]
+            Delete Record/Request [ With dialog: Off ]
+        End If
+        Go to Layout [ original layout ]
+    End If
+
+    # Step 9: If this was the default, clear the default on the customer record
+    If [ $wasDefault ]
+        Set Field [ Customers::DefaultPaymentMethod ; "" ]
+        Commit Records/Requests [ With dialog: Off ]
+    End If
+
+    Show Custom Dialog [ "Success" ; "Card removed successfully." ]
+Else
+    Show Custom Dialog [ "Warning" ; "Unexpected response — card may not have been fully detached." ]
+End If
+
+Exit Script [ Text Result: "success" ]
