@@ -10,15 +10,16 @@ FileMaker Pro scripts for Stripe payment integration using **Stripe Connect** wi
 
 - **scripts/**: FileMaker script definitions (one file per Stripe operation)
   - Scripts 01-06: Customer and card management (create customer, add/update/delete/list cards, charge)
-  - Scripts 07-11: Stripe Connect (create account, onboarding link, check status, disconnect)
+  - Scripts 07-11: Stripe Connect (authorize account, complete connection, check status, disconnect)
   - Each script follows a consistent pattern: set variables → build cURL options → call Stripe API → parse JSON response → handle errors → store results
 
 ### Stripe Connect Model
-- **Connect type**: Standard accounts created via API (no OAuth server needed)
+- **Connect type**: Existing Standard accounts linked via OAuth (no server needed — desktop-friendly)
 - **Charge type**: Destination charges — platform creates the PaymentIntent with `transfer_data[destination]` and `application_fee_amount`
-- **Flow**: Create Standard account via API → user completes Stripe-hosted onboarding → charges route funds to connected account minus platform fee
-- Platform API key (`StripeConfig::ApiKey`) is used for all API calls
-- Standard accounts have full access to dashboard.stripe.com (no login link scripts needed)
+- **Flow**: User authorizes in browser → copies code from localhost redirect → script exchanges code for `acct_xxx` → charges route funds to connected account minus platform fee
+- Platform API key (`StripeConfig::ApiKey`) used for API calls; Connect Client ID (`StripeConfig::ConnectClientID`) used for OAuth
+- Standard accounts manage their own dashboard at dashboard.stripe.com
+- `http://localhost` is used as the OAuth redirect URI (must be added in Stripe Connect settings)
 
 ### Key Tables
 - `StripeConfig`: Platform credentials and Connect settings (single-record)

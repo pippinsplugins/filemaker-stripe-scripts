@@ -1,0 +1,108 @@
+# FileMaker Script: Complete Account Connection
+# Purpose: Exchanges the OAuth authorization code for the connected account ID
+# Stripe API: POST https://connect.stripe.com/oauth/token
+#
+# After the user authorizes in script 07, they copy the authorization code
+# from the browser URL bar. This script exchanges that code for the connected
+# account's Stripe account ID (acct_xxx).
+#
+# Script Parameter (optional): the authorization code (ac_xxx)
+# If no parameter, the script prompts for manual entry.
+# ---
+
+# Step 1: Get the platform's Stripe API key
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+
+# Step 2: Get the authorization code
+Set Variable [ $authCode ; Value: Get(ScriptParameter) ]
+
+If [ IsEmpty($authCode) ]
+    # Prompt the user to paste the code
+    Show Custom Dialog [ "Enter Authorization Code" ;
+        "Paste the authorization code from the browser URL bar." &
+        "¶¶It starts with 'ac_' and appears after '?code=' in the URL." ;
+        Input Field: ConnectedAccounts::TempAuthCode ]
+
+    If [ Get(LastMessageChoice) = 1 ]
+        Exit Script [ Text Result: "cancelled" ]
+    End If
+
+    Set Variable [ $authCode ; Value: ConnectedAccounts::TempAuthCode ]
+End If
+
+If [ IsEmpty($authCode) ]
+    Show Custom Dialog [ "Error" ; "No authorization code provided." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Exchange the authorization code for the account ID
+Set Variable [ $postData ; Value:
+    "grant_type=authorization_code" &
+    "&code=" & $authCode
+]
+
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $postData & "\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://connect.stripe.com/oauth/token" ;
+    cURL options: $curlOptions ]
+
+# Step 4: Check for errors
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error_description") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to connect account: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 5: Extract the connected account ID
+Set Variable [ $accountID ; Value: JSONGetElement($response ; "stripe_user_id") ]
+Set Variable [ $livemode ; Value: JSONGetElement($response ; "livemode") ]
+
+# Step 6: Store the connected account in FileMaker
+Set Field [ ConnectedAccounts::StripeAccountID ; $accountID ]
+Set Field [ ConnectedAccounts::Livemode ; $livemode ]
+Set Field [ ConnectedAccounts::IsConnected ; 1 ]
+Set Field [ ConnectedAccounts::ConnectedDate ; Get(CurrentTimestamp) ]
+
+# Clear the temporary auth code field
+Set Field [ ConnectedAccounts::TempAuthCode ; "" ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Step 7: Retrieve account details to confirm the connection
+Set Variable [ $curlOptions ; Value:
+    "-X GET" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2025-04-30\""
+]
+
+Set Variable [ $acctResponse ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $acctResponse ;
+    URL: "https://api.stripe.com/v1/accounts/" & $accountID ;
+    cURL options: $curlOptions ]
+
+Set Variable [ $businessName ; Value: JSONGetElement($acctResponse ; "business_profile.name") ]
+Set Variable [ $chargesEnabled ; Value: JSONGetElement($acctResponse ; "charges_enabled") ]
+Set Variable [ $payoutsEnabled ; Value: JSONGetElement($acctResponse ; "payouts_enabled") ]
+Set Variable [ $email ; Value: JSONGetElement($acctResponse ; "email") ]
+
+Set Field [ ConnectedAccounts::BusinessName ; $businessName ]
+Set Field [ ConnectedAccounts::ChargesEnabled ; $chargesEnabled ]
+Set Field [ ConnectedAccounts::PayoutsEnabled ; $payoutsEnabled ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Step 8: Confirm the connection
+Show Custom Dialog [ "Account Connected" ;
+    "Stripe account successfully connected!" &
+    "¶¶Account ID: " & $accountID &
+    "¶Business: " & $businessName &
+    "¶Email: " & $email &
+    "¶Charges enabled: " & $chargesEnabled &
+    "¶Mode: " & If($livemode = "true" ; "Live" ; "Test") ]
+
+Exit Script [ Text Result: $accountID ]

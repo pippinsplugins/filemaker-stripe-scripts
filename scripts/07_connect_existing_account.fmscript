@@ -1,0 +1,51 @@
+# FileMaker Script: Connect an Existing Stripe Account
+# Purpose: Opens the Stripe OAuth authorization page so a user can connect their
+#          existing Stripe account to your platform
+# Stripe OAuth: https://connect.stripe.com/oauth/authorize
+#
+# No server required. Desktop-friendly flow:
+#   1. This script opens the Stripe authorization page in the user's browser
+#   2. The user logs into their Stripe account and authorizes your platform
+#   3. Stripe redirects to http://localhost — the browser shows a "can't connect" error (this is normal)
+#   4. The user copies the "code" value from the browser's URL bar
+#      (the URL will look like: http://localhost?scope=read_write&code=ac_XXXXX)
+#   5. Run script 08 and paste the code to complete the connection
+# ---
+
+# Step 1: Get the platform's Connect Client ID
+# Found in Stripe Dashboard → Settings → Connect settings → Integration
+Set Variable [ $clientID ; Value: GetFieldValue("StripeConfig::ConnectClientID") ]
+
+If [ IsEmpty($clientID) ]
+    Show Custom Dialog [ "Configuration Error" ;
+        "Stripe Connect Client ID is not configured." &
+        "¶¶Find it in your Stripe Dashboard under Settings → Connect settings." &
+        "¶It starts with 'ca_'." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 2: Build the OAuth authorization URL
+# redirect_uri is set to http://localhost since this is a desktop app.
+# stripe_landing=login shows the login form (user already has a Stripe account).
+Set Variable [ $oauthUrl ; Value:
+    "https://connect.stripe.com/oauth/authorize" &
+    "?response_type=code" &
+    "&client_id=" & $clientID &
+    "&scope=read_write" &
+    "&redirect_uri=" & GetAsURLEncoded("http://localhost") &
+    "&stripe_landing=login"
+]
+
+# Step 3: Open the authorization page in the user's browser
+Open URL [ With dialog: Off ; $oauthUrl ]
+
+# Step 4: Instruct the user on next steps
+Show Custom Dialog [ "Connect Stripe Account" ;
+    "A browser window has been opened for the user to authorize their Stripe account." &
+    "¶¶After authorizing:" &
+    "¶1. The browser will show a 'can't connect' or 'localhost' error — this is normal" &
+    "¶2. Look at the URL bar — it will contain: ...?code=ac_XXXXX" &
+    "¶3. Copy the code value (starts with ac_)" &
+    "¶4. Run 'Complete Account Connection' and paste the code" ]
+
+Exit Script [ Text Result: $oauthUrl ]

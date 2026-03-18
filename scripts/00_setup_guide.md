@@ -6,8 +6,7 @@
 | Field | Type | Purpose |
 |-------|------|---------|
 | ApiKey | Text | Your platform's Stripe secret key (sk_test_... or sk_live_...) |
-| ConnectReturnURL | Text | Any URL to show after onboarding completes (e.g., a simple "You can close this tab" page) |
-| ConnectRefreshURL | Text | Any URL to show if onboarding link expires (e.g., same as return URL) |
+| ConnectClientID | Text | Your platform's Connect client ID (ca_xxx) — found in Stripe Dashboard → Settings → Connect |
 | ApplicationFeePercent | Number | Application fee percentage your platform keeps (e.g., 10 for 10%) |
 
 ### Customers (your existing customer table — add these fields)
@@ -48,23 +47,19 @@
 | BillingName | Text | Name on card |
 | IsDefault | Number | 1 = default payment method |
 
-### ConnectedAccounts (new table for Stripe Connect Standard accounts)
+### ConnectedAccounts (new table for Stripe Connect — linked existing Standard accounts)
 | Field | Type | Purpose |
 |-------|------|---------|
 | ConnectedAccountID | Number (auto-enter serial) | Primary key |
 | UserID_FK | Number | Foreign key to your Users/Members table |
 | StripeAccountID | Text | `acct_xxx` — the connected account ID |
-| Email | Text | Account email |
-| Country | Text | 2-letter ISO code (US, GB, etc.) |
-| BusinessType | Text | `individual`, `company`, or `non_profit` |
 | BusinessName | Text | Business name from Stripe |
 | ChargesEnabled | Text | Whether account can accept charges |
 | PayoutsEnabled | Text | Whether account can receive payouts |
-| DetailsSubmitted | Text | Whether onboarding details have been submitted |
-| OnboardingComplete | Number | 1 = fully onboarded |
 | IsConnected | Number | 1 = active connection |
-| DisabledReason | Text | Reason if account is disabled |
-| CreatedDate | Timestamp | When account was created |
+| Livemode | Text | true/false |
+| TempAuthCode | Text | Temporary field for pasting the OAuth authorization code |
+| ConnectedDate | Timestamp | When account was connected |
 | DisconnectedDate | Timestamp | When account was disconnected |
 | LastChecked | Timestamp | Last time status was refreshed |
 
@@ -111,23 +106,26 @@ Use any future expiry date and any 3-digit CVC (4-digit for Amex).
 
 ## Stripe Connect Setup (Required)
 
-This application uses **Stripe Connect** with Standard accounts. No OAuth server required — accounts are created via API and users complete onboarding on Stripe's hosted page. Standard accounts have full access to the Stripe Dashboard at dashboard.stripe.com.
+This application uses **Stripe Connect** to link existing Standard Stripe accounts. No server required — users authorize via a browser-based OAuth flow and paste a code back into FileMaker.
 
 1. In your Stripe Dashboard, go to **Settings → Connect**
 2. Set up your **Platform profile** (required before going live)
-3. Set `StripeConfig::ApplicationFeePercent` to your desired fee (e.g., 10 for 10%)
-4. Optionally set `ConnectReturnURL` and `ConnectRefreshURL` to any web page (e.g., a simple page that says "Onboarding complete — you can close this tab and return to FileMaker")
+3. Add `http://localhost` as a **Redirect URI** in your Connect settings
+4. Copy the **Client ID** (ca_xxx) into `StripeConfig::ConnectClientID`
+5. Set `StripeConfig::ApplicationFeePercent` to your desired fee (e.g., 10 for 10%)
 
 ## Script Execution Order for New Setup
 
 ### Initial platform setup:
 1. Create the tables, fields, and layouts above
-2. Add your Stripe API key to the StripeConfig table
+2. Add your Stripe API key and Connect Client ID to the StripeConfig table
+3. Add `http://localhost` as a redirect URI in Stripe Dashboard → Connect settings
 
 ### For each user connecting their Stripe account:
-3. Run **07_create_connect_account** — creates Standard account and opens onboarding in browser
-4. If the onboarding link expires, run **08_create_onboarding_link** to generate a new one
-5. Run **09_check_account_status** to verify onboarding is complete
+4. Run **07_connect_existing_account** — opens Stripe authorization in browser
+5. User authorizes, then copies the code from the browser URL bar
+6. Run **08_complete_account_connection** — paste code to finish the connection
+7. Run **09_check_account_status** to verify charges are enabled
 
 ### For each customer/payment:
 6. Run **01_create_customer** on a customer record to register them in Stripe
@@ -136,5 +134,6 @@ This application uses **Stripe Connect** with Standard accounts. No OAuth server
 9. Use **04_update_card**, **05_delete_card**, **06_list_cards** as needed
 
 ### Account management:
-- **11_disconnect_account** — remove a connected Standard account from the platform
-- Standard account users manage their own settings, payouts, and disputes at dashboard.stripe.com
+- **09_check_account_status** — refresh and verify a connected account's status
+- **11_disconnect_account** — revoke the connection (user's Stripe account is not affected)
+- Connected users manage their own settings, payouts, and disputes at dashboard.stripe.com
