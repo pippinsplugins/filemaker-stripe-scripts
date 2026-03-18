@@ -1,14 +1,15 @@
-# FileMaker Script: Disconnect a Stripe Connected Account
-# Purpose: Revokes the OAuth connection between your platform and a connected account
-# Stripe API: POST https://connect.stripe.com/oauth/deauthorize
+# FileMaker Script: Disconnect a Stripe Connected Standard Account
+# Purpose: Removes the connection between your platform and a Standard account
+# Stripe API: DELETE https://api.stripe.com/v1/accounts/{acct_id}
 #
-# This revokes your platform's access to the connected account. The user's Stripe
-# account continues to exist — only the connection to your platform is removed.
+# This removes the platform connection. The user's Standard Stripe account
+# continues to exist independently — they just won't be connected to your platform.
+# Any pending transfers will still be processed, but no new charges can be created
+# through your platform.
 # ---
 
-# Step 1: Get platform credentials
+# Step 1: Get the platform's Stripe API key
 Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
-Set Variable [ $clientID ; Value: GetFieldValue("StripeConfig::ConnectClientID") ]
 
 # Step 2: Get the connected account ID
 Set Variable [ $accountID ; Value: Get(ScriptParameter) ]
@@ -21,56 +22,50 @@ If [ IsEmpty($accountID) ]
     Exit Script [ Text Result: "error" ]
 End If
 
-# Step 3: Confirm disconnection
+# Step 3: Confirm deletion
 Show Custom Dialog [ "Confirm Disconnect" ;
     "Are you sure you want to disconnect Stripe account " & $accountID & "?" &
-    "¶¶This will revoke your platform's access. You will no longer be able to " &
-    "create charges on this account. The user's Stripe account is not affected." ;
+    "¶¶This will remove the connection to your platform. " &
+    "The user's Stripe account will continue to exist independently. " &
+    "No new charges can be created through your platform for this account." ;
     Button 1: "Cancel" ; Button 2: "Disconnect" ]
 
 If [ Get(LastMessageChoice) = 1 ]
     Exit Script [ Text Result: "cancelled" ]
 End If
 
-# Step 4: Revoke the OAuth connection
-Set Variable [ $postData ; Value:
-    "client_id=" & $clientID &
-    "&stripe_user_id=" & $accountID
-]
-
+# Step 4: Delete the connected account
 Set Variable [ $curlOptions ; Value:
-    "-X POST" &
+    "-X DELETE" &
     " -H \"Authorization: Bearer " & $apiKey & "\"" &
-    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
-    " -d \"" & $postData & "\""
+    " -H \"Stripe-Version: 2025-04-30\""
 ]
 
 Set Variable [ $response ; Value: "" ]
 Insert from URL [ Select ; With dialog: Off ; Target: $response ;
-    URL: "https://connect.stripe.com/oauth/deauthorize" ;
+    URL: "https://api.stripe.com/v1/accounts/" & $accountID ;
     cURL options: $curlOptions ]
 
 # Step 5: Check for errors
-Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error_description") ]
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
 If [ not IsEmpty($errorMessage) ]
     Show Custom Dialog [ "Stripe Error" ; "Failed to disconnect: " & $errorMessage ]
     Exit Script [ Text Result: "error" ]
 End If
 
-# Step 6: Verify disconnection
-Set Variable [ $revokedID ; Value: JSONGetElement($response ; "stripe_user_id") ]
+# Step 6: Verify deletion
+Set Variable [ $deleted ; Value: JSONGetElement($response ; "deleted") ]
 
-If [ $revokedID = $accountID ]
+If [ $deleted = "true" ]
     # Clear the connection data in FileMaker
     Set Field [ ConnectedAccounts::IsConnected ; 0 ]
-    Set Field [ ConnectedAccounts::AccessToken ; "" ]
-    Set Field [ ConnectedAccounts::RefreshToken ; "" ]
     Set Field [ ConnectedAccounts::ChargesEnabled ; "" ]
     Set Field [ ConnectedAccounts::PayoutsEnabled ; "" ]
+    Set Field [ ConnectedAccounts::OnboardingComplete ; 0 ]
     Set Field [ ConnectedAccounts::DisconnectedDate ; Get(CurrentTimestamp) ]
     Commit Records/Requests [ With dialog: Off ]
 
-    Show Custom Dialog [ "Disconnected" ; "Stripe account " & $accountID & " has been disconnected." ]
+    Show Custom Dialog [ "Disconnected" ; "Stripe account " & $accountID & " has been removed." ]
 Else
     Show Custom Dialog [ "Warning" ; "Unexpected response. Check the account status manually." ]
 End If

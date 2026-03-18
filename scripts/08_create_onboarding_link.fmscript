@@ -1,0 +1,71 @@
+# FileMaker Script: Generate New Onboarding Link
+# Purpose: Creates a new Account Link for an existing Standard account that hasn't
+#          finished onboarding, or needs to update their information
+# Stripe API: POST https://api.stripe.com/v1/account_links
+#
+# Account Links expire shortly after creation. If the user didn't finish onboarding
+# or the link expired, run this script to generate a fresh one.
+# ---
+
+# Step 1: Get the platform's Stripe API key
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+
+# Step 2: Get the connected account ID
+Set Variable [ $accountID ; Value: Get(ScriptParameter) ]
+If [ IsEmpty($accountID) ]
+    Set Variable [ $accountID ; Value: ConnectedAccounts::StripeAccountID ]
+End If
+
+If [ IsEmpty($accountID) ]
+    Show Custom Dialog [ "Error" ; "No Stripe account ID found. Run 'Create Connect Account' first." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Set return and refresh URLs
+Set Variable [ $returnUrl ; Value: GetFieldValue("StripeConfig::ConnectReturnURL") ]
+Set Variable [ $refreshUrl ; Value: GetFieldValue("StripeConfig::ConnectRefreshURL") ]
+
+If [ IsEmpty($returnUrl) ]
+    Set Variable [ $returnUrl ; Value: "https://example.com/stripe/onboarding-complete" ]
+End If
+If [ IsEmpty($refreshUrl) ]
+    Set Variable [ $refreshUrl ; Value: "https://example.com/stripe/onboarding-refresh" ]
+End If
+
+# Step 4: Create the Account Link
+Set Variable [ $postData ; Value:
+    "account=" & $accountID &
+    "&type=account_onboarding" &
+    "&return_url=" & GetAsURLEncoded($returnUrl) &
+    "&refresh_url=" & GetAsURLEncoded($refreshUrl)
+]
+
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2025-04-30\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $postData & "\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/account_links" ;
+    cURL options: $curlOptions ]
+
+# Step 5: Check for errors
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to create onboarding link: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 6: Open the onboarding URL
+Set Variable [ $onboardingUrl ; Value: JSONGetElement($response ; "url") ]
+Open URL [ With dialog: Off ; $onboardingUrl ]
+
+Show Custom Dialog [ "Onboarding Link Opened" ;
+    "A new onboarding page has been opened in the browser for account " & $accountID & "." &
+    "¶¶Once the user completes onboarding, run 'Check Account Status' to verify." ]
+
+Exit Script [ Text Result: $onboardingUrl ]

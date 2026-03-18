@@ -1,69 +1,125 @@
-# FileMaker Script: Start Stripe Connect OAuth Flow
-# Purpose: Generates an OAuth authorization URL for a user to connect their existing
-#          Stripe account to your platform
-# Stripe OAuth: https://connect.stripe.com/oauth/authorize
+# FileMaker Script: Create Stripe Connect Standard Account
+# Purpose: Creates a new Standard connected account via the API and opens the
+#          Stripe-hosted onboarding form for the user to complete setup
+# Stripe API: POST https://api.stripe.com/v1/accounts
+#             POST https://api.stripe.com/v1/account_links
 #
-# Users already have their own Stripe accounts. This script generates a URL that
-# sends them to Stripe's OAuth page where they authorize your platform to create
-# charges on their behalf. After authorization, Stripe redirects them back with
-# an authorization code that you exchange for their connected account ID.
+# No server required. This script:
+#   1. Creates a Standard account via API
+#   2. Generates an Account Link (Stripe-hosted onboarding URL)
+#   3. Opens the URL in the user's browser
+#   4. The user completes identity verification, bank account setup, etc. on Stripe
+#   5. After completion, Stripe redirects to your return_url (can be any simple page)
+#   6. Run script 09 to verify onboarding is complete
 #
-# Flow:
-#   1. Generate OAuth URL (this script)
-#   2. User clicks URL → authorizes on Stripe → redirected back with ?code=xxx
-#   3. Exchange the code for the account ID (script 08)
+# Standard accounts have full access to the Stripe Dashboard at dashboard.stripe.com
+# and manage their own account settings, payouts, and disputes directly.
 # ---
 
-# Step 1: Get the platform's Stripe client ID (different from API key)
-# The client ID is found in Stripe Dashboard → Settings → Connect → Platform settings
-Set Variable [ $clientID ; Value: GetFieldValue("StripeConfig::ConnectClientID") ]
+# Step 1: Get the platform's Stripe API key
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
 
-If [ IsEmpty($clientID) ]
-    Show Custom Dialog [ "Configuration Error" ;
-        "Stripe Connect Client ID is not configured. " &
-        "Find it in your Stripe Dashboard under Settings → Connect settings." ]
+# Step 2: Collect user info from the current record
+Set Variable [ $email ; Value: ConnectedAccounts::Email ]
+Set Variable [ $country ; Value: ConnectedAccounts::Country ]  // 2-letter ISO code (US, GB, etc.)
+Set Variable [ $businessType ; Value: ConnectedAccounts::BusinessType ]  // individual, company, non_profit
+
+# Defaults
+If [ IsEmpty($businessType) ]
+    Set Variable [ $businessType ; Value: "individual" ]
+End If
+If [ IsEmpty($country) ]
+    Set Variable [ $country ; Value: "US" ]
+End If
+
+# Step 3: Create the Standard account
+Set Variable [ $postData ; Value:
+    "type=standard" &
+    "&country=" & $country &
+    "&email=" & GetAsURLEncoded($email) &
+    "&business_type=" & $businessType &
+    "&capabilities[card_payments][requested]=true" &
+    "&capabilities[transfers][requested]=true"
+]
+
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2025-04-30\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $postData & "\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/accounts" ;
+    cURL options: $curlOptions ]
+
+# Step 4: Check for errors
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to create account: " & $errorMessage ]
     Exit Script [ Text Result: "error" ]
 End If
 
-# Step 2: Set the redirect URI
-# This is where Stripe sends the user after they authorize (or deny) the connection.
-# Must match exactly what's configured in your Stripe Connect settings.
-Set Variable [ $redirectUri ; Value: GetFieldValue("StripeConfig::ConnectRedirectURI") ]
+Set Variable [ $accountID ; Value: JSONGetElement($response ; "id") ]
 
-If [ IsEmpty($redirectUri) ]
-    Show Custom Dialog [ "Configuration Error" ;
-        "Connect Redirect URI is not configured in StripeConfig." ]
-    Exit Script [ Text Result: "error" ]
-End If
-
-# Step 3: Generate a unique state parameter for CSRF protection
-# Store this to verify when the user returns
-Set Variable [ $state ; Value: Get(UUID) ]
-
-# Step 4: Store the state for verification later
-Set Field [ ConnectedAccounts::OAuthState ; $state ]
-Set Field [ ConnectedAccounts::OAuthStarted ; Get(CurrentTimestamp) ]
+# Step 5: Store the account ID
+Set Field [ ConnectedAccounts::StripeAccountID ; $accountID ]
+Set Field [ ConnectedAccounts::OnboardingComplete ; 0 ]
+Set Field [ ConnectedAccounts::IsConnected ; 1 ]
+Set Field [ ConnectedAccounts::CreatedDate ; Get(CurrentTimestamp) ]
 Commit Records/Requests [ With dialog: Off ]
 
-# Step 5: Build the OAuth authorization URL
-Set Variable [ $oauthUrl ; Value:
-    "https://connect.stripe.com/oauth/authorize" &
-    "?response_type=code" &
-    "&client_id=" & $clientID &
-    "&scope=read_write" &
-    "&redirect_uri=" & GetAsURLEncoded($redirectUri) &
-    "&state=" & $state &
-    "&stripe_landing=login"
+# Step 6: Generate the onboarding Account Link
+# return_url: where Stripe sends the user after they finish (any page works)
+# refresh_url: where Stripe sends the user if the link expires (any page works)
+Set Variable [ $returnUrl ; Value: GetFieldValue("StripeConfig::ConnectReturnURL") ]
+Set Variable [ $refreshUrl ; Value: GetFieldValue("StripeConfig::ConnectRefreshURL") ]
+
+If [ IsEmpty($returnUrl) ]
+    Set Variable [ $returnUrl ; Value: "https://example.com/stripe/onboarding-complete" ]
+End If
+If [ IsEmpty($refreshUrl) ]
+    Set Variable [ $refreshUrl ; Value: "https://example.com/stripe/onboarding-refresh" ]
+End If
+
+Set Variable [ $linkData ; Value:
+    "account=" & $accountID &
+    "&type=account_onboarding" &
+    "&return_url=" & GetAsURLEncoded($returnUrl) &
+    "&refresh_url=" & GetAsURLEncoded($refreshUrl)
 ]
-# Note: stripe_landing=login tells Stripe to show the login form (since users
-# already have accounts) rather than the registration form.
 
-# Step 6: Open the OAuth URL in the user's browser
-Open URL [ With dialog: Off ; $oauthUrl ]
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Version: 2025-04-30\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $linkData & "\""
+]
 
-Show Custom Dialog [ "Connect Your Stripe Account" ;
-    "A browser window has been opened for the user to connect their Stripe account." &
-    "¶¶Once they authorize the connection, they will be redirected back. " &
-    "Then run 'Complete Connect OAuth' with the authorization code from the redirect URL." ]
+Set Variable [ $linkResponse ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $linkResponse ;
+    URL: "https://api.stripe.com/v1/account_links" ;
+    cURL options: $curlOptions ]
 
-Exit Script [ Text Result: $oauthUrl ]
+Set Variable [ $errorMessage ; Value: JSONGetElement($linkResponse ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ;
+        "Account created (" & $accountID & ") but failed to generate onboarding link: " & $errorMessage &
+        "¶¶Run script 08 to generate a new onboarding link." ]
+    Exit Script [ Text Result: $accountID ]
+End If
+
+# Step 7: Open the onboarding URL in the user's browser
+Set Variable [ $onboardingUrl ; Value: JSONGetElement($linkResponse ; "url") ]
+Open URL [ With dialog: Off ; $onboardingUrl ]
+
+Show Custom Dialog [ "Onboarding Started" ;
+    "Account created: " & $accountID &
+    "¶¶The Stripe onboarding page has been opened in the browser. " &
+    "The user should complete all steps." &
+    "¶¶Once finished, run 'Check Account Status' (script 09) to confirm." ]
+
+Exit Script [ Text Result: $accountID ]

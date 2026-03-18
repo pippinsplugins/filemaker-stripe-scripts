@@ -1,9 +1,10 @@
 # FileMaker Script: Check Connected Account Status
-# Purpose: Retrieves the current status of a connected Stripe account
+# Purpose: Retrieves the current status of a connected Stripe Standard account
 # Stripe API: GET https://api.stripe.com/v1/accounts/{acct_id}
 #
 # Use this to verify a connected account can accept charges, or to refresh
-# the stored account details.
+# the stored account details. Standard accounts manage their own dashboard
+# at dashboard.stripe.com.
 # ---
 
 # Step 1: Get the platform's Stripe API key
@@ -42,13 +43,20 @@ End If
 # Step 5: Extract account status
 Set Variable [ $chargesEnabled ; Value: JSONGetElement($response ; "charges_enabled") ]
 Set Variable [ $payoutsEnabled ; Value: JSONGetElement($response ; "payouts_enabled") ]
+Set Variable [ $detailsSubmitted ; Value: JSONGetElement($response ; "details_submitted") ]
 Set Variable [ $businessName ; Value: JSONGetElement($response ; "business_profile.name") ]
 Set Variable [ $email ; Value: JSONGetElement($response ; "email") ]
+
+Set Variable [ $isComplete ; Value:
+    ($chargesEnabled = "true") and ($payoutsEnabled = "true") and ($detailsSubmitted = "true")
+]
 
 # Step 6: Update FileMaker record
 Set Field [ ConnectedAccounts::ChargesEnabled ; $chargesEnabled ]
 Set Field [ ConnectedAccounts::PayoutsEnabled ; $payoutsEnabled ]
+Set Field [ ConnectedAccounts::DetailsSubmitted ; $detailsSubmitted ]
 Set Field [ ConnectedAccounts::BusinessName ; $businessName ]
+Set Field [ ConnectedAccounts::OnboardingComplete ; If($isComplete ; 1 ; 0) ]
 Set Field [ ConnectedAccounts::LastChecked ; Get(CurrentTimestamp) ]
 Commit Records/Requests [ With dialog: Off ]
 
@@ -62,11 +70,17 @@ If [ $chargesEnabled = "true" ]
         "¶Payouts: " & If($payoutsEnabled = "true" ; "Enabled" ; "Disabled") ]
 Else
     Show Custom Dialog [ "Account Not Ready" ;
-        "Account " & $accountID & " cannot accept charges." &
+        "Account " & $accountID & " cannot accept charges yet." &
         "¶Business: " & $businessName &
         "¶Charges: Disabled" &
         "¶Payouts: " & If($payoutsEnabled = "true" ; "Enabled" ; "Disabled") &
-        "¶¶The user may need to complete additional verification on their Stripe account." ]
+        "¶¶The user may need to complete onboarding or additional verification " &
+        "in their Stripe Dashboard at dashboard.stripe.com." ;
+        Button 1: "OK" ; Button 2: "Generate New Onboarding Link" ]
+
+    If [ Get(LastMessageChoice) = 2 ]
+        Perform Script [ "08_create_onboarding_link" ; Parameter: $accountID ]
+    End If
 End If
 
 Exit Script [ Text Result: If($chargesEnabled = "true" ; "active" ; "inactive") ]

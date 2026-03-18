@@ -1,6 +1,6 @@
 # FileMaker Script: Process a Charge to a Stored Card (Stripe Connect)
 # Purpose: Creates a PaymentIntent to charge a stored PaymentMethod,
-#          routing funds to a connected Express account with an application fee
+#          routing funds to a connected Standard account with an application fee
 # Stripe API: POST https://api.stripe.com/v1/payment_intents
 #
 # This uses the PaymentIntents API with Stripe Connect destination charges.
