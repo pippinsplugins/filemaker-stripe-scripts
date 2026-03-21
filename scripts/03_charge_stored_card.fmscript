@@ -83,7 +83,6 @@ Set Variable [ $postData ; Value:
 Set Variable [ $curlOptions ; Value:
     "-X POST" &
     " -H \"Authorization: Bearer " & $apiKey & "\"" &
-    " -H \"Stripe-Version: 2025-04-30\"" &
     " -H \"Stripe-Account: " & $connectedAccountID & "\"" &
     " -H \"Content-Type: application/x-www-form-urlencoded\"" &
     " -d \"" & $postData & "\""

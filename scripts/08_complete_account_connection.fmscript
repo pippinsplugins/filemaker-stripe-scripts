@@ -78,7 +78,6 @@ Commit Records/Requests [ With dialog: Off ]
 Set Variable [ $curlOptions ; Value:
     "-X GET" &
     " -H \"Authorization: Bearer " & $apiKey & "\"" &
-    " -H \"Stripe-Version: 2025-04-30\""
 ]
 
 Set Variable [ $acctResponse ; Value: "" ]

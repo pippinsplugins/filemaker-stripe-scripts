@@ -42,7 +42,6 @@ End If
 Set Variable [ $curlOptions ; Value:
     "-X POST" &
     " -H \"Authorization: Bearer " & $apiKey & "\"" &
-    " -H \"Stripe-Version: 2025-04-30\"" &
     " -H \"Stripe-Account: " & $connectedAccountID & "\""
 ]
 
