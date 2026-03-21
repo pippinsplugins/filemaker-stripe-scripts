@@ -1,0 +1,101 @@
+# FileMaker Script: Stripe Attach Card (called by Web Viewer)
+# Purpose: Receives a PaymentMethod ID from the Stripe Elements form and
+#          attaches it to the customer on the connected account
+#
+# IMPORTANT: This script is called automatically by the JavaScript in the
+# Web Viewer via FileMaker.PerformScript(). Do not run it manually.
+#
+# Script Parameter: JSON string from JavaScript containing:
+#   paymentMethodID, last4, brand, expMonth, expYear
+# ---
+
+# Step 1: Parse the script parameter
+Set Variable [ $params ; Value: Get(ScriptParameter) ]
+Set Variable [ $paymentMethodID ; Value: JSONGetElement($params ; "paymentMethodID") ]
+Set Variable [ $last4 ; Value: JSONGetElement($params ; "last4") ]
+Set Variable [ $brand ; Value: JSONGetElement($params ; "brand") ]
+Set Variable [ $expMonth ; Value: JSONGetElement($params ; "expMonth") ]
+Set Variable [ $expYear ; Value: JSONGetElement($params ; "expYear") ]
+
+If [ IsEmpty($paymentMethodID) ]
+    Show Custom Dialog [ "Error" ; "No PaymentMethod ID received from Stripe." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 2: Get API key and connected account
+Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+Set Variable [ $connectedAccountID ; Value: ConnectedAccounts::StripeAccountID ]
+Set Variable [ $customerID ; Value: Customers::StripeCustomerID ]
+
+If [ IsEmpty($connectedAccountID) ]
+    Show Custom Dialog [ "Error" ; "No connected Stripe account found." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+If [ IsEmpty($customerID) ]
+    Show Custom Dialog [ "Error" ; "No Stripe customer ID found." ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 3: Attach the PaymentMethod to the customer on the connected account
+Set Variable [ $attachData ; Value: "customer=" & $customerID ]
+
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Account: " & $connectedAccountID & "\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $attachData & "\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/payment_methods/" & $paymentMethodID & "/attach" ;
+    cURL options: $curlOptions ]
+
+Set Variable [ $errorMessage ; Value: JSONGetElement($response ; "error.message") ]
+If [ not IsEmpty($errorMessage) ]
+    Show Custom Dialog [ "Stripe Error" ; "Failed to attach card: " & $errorMessage ]
+    Exit Script [ Text Result: "error" ]
+End If
+
+# Step 4: Set as the default payment method
+Set Variable [ $defaultData ; Value:
+    "invoice_settings[default_payment_method]=" & $paymentMethodID
+]
+
+Set Variable [ $curlOptions ; Value:
+    "-X POST" &
+    " -H \"Authorization: Bearer " & $apiKey & "\"" &
+    " -H \"Stripe-Account: " & $connectedAccountID & "\"" &
+    " -H \"Content-Type: application/x-www-form-urlencoded\"" &
+    " -d \"" & $defaultData & "\""
+]
+
+Set Variable [ $response ; Value: "" ]
+Insert from URL [ Select ; With dialog: Off ; Target: $response ;
+    URL: "https://api.stripe.com/v1/customers/" & $customerID ;
+    cURL options: $curlOptions ]
+
+# Step 5: Store the PaymentMethod in FileMaker
+Go to Layout [ "PaymentMethods" ; Animation: None ]
+New Record/Request
+Set Field [ PaymentMethods::StripePaymentMethodID ; $paymentMethodID ]
+Set Field [ PaymentMethods::CustomerID_FK ; Customers::CustomerID ]
+Set Field [ PaymentMethods::StripeCustomerID ; $customerID ]
+Set Field [ PaymentMethods::CardLast4 ; $last4 ]
+Set Field [ PaymentMethods::CardBrand ; $brand ]
+Set Field [ PaymentMethods::CardExpMonth ; $expMonth ]
+Set Field [ PaymentMethods::CardExpYear ; $expYear ]
+Set Field [ PaymentMethods::IsDefault ; 1 ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Step 6: Update the customer record
+Go to Layout [ original layout ]
+Set Field [ Customers::DefaultPaymentMethod ; $paymentMethodID ]
+Commit Records/Requests [ With dialog: Off ]
+
+Show Custom Dialog [ "Card Saved" ;
+    "Card added successfully: " & $brand & " ending in " & $last4 ]
+
+Exit Script [ Text Result: $paymentMethodID ]
