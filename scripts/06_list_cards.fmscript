@@ -3,8 +3,14 @@
 # Stripe API: GET https://api.stripe.com/v1/payment_methods?customer={cus_id}&type=card
 # ---
 
-# Step 1: Get the Stripe API key
+# Step 1: Get the Stripe API key and connected account ID
 Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+Set Variable [ $connectedAccountID ; Value: ConnectedAccounts::StripeAccountID ]
+
+If [ IsEmpty($connectedAccountID) ]
+    Show Custom Dialog [ "Error" ; "No connected Stripe account found. Connect a Stripe account first." ]
+    Exit Script [ Text Result: "error" ]
+End If
 
 # Step 2: Get the customer's Stripe ID
 Set Variable [ $customerID ; Value: Customers::StripeCustomerID ]
@@ -25,7 +31,8 @@ Set Variable [ $url ; Value:
 Set Variable [ $curlOptions ; Value:
     "-X GET" &
     " -H \"Authorization: Bearer " & $apiKey & "\"" &
-    " -H \"Stripe-Version: 2025-04-30\""
+    " -H \"Stripe-Version: 2025-04-30\"" &
+    " -H \"Stripe-Account: " & $connectedAccountID & "\""
 ]
 
 # Step 4: Call the Stripe API

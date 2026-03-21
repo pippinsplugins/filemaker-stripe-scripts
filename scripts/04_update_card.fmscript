@@ -9,8 +9,14 @@
 # To replace a card entirely (new number/exp), use scripts 05 (delete) + 02 (add).
 # ---
 
-# Step 1: Get the Stripe API key
+# Step 1: Get the Stripe API key and connected account ID
 Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+Set Variable [ $connectedAccountID ; Value: ConnectedAccounts::StripeAccountID ]
+
+If [ IsEmpty($connectedAccountID) ]
+    Show Custom Dialog [ "Error" ; "No connected Stripe account found. Connect a Stripe account first." ]
+    Exit Script [ Text Result: "error" ]
+End If
 
 # Step 2: Get the PaymentMethod ID to update
 # Option A: From script parameter
@@ -54,6 +60,7 @@ Set Variable [ $curlOptions ; Value:
     "-X POST" &
     " -H \"Authorization: Bearer " & $apiKey & "\"" &
     " -H \"Stripe-Version: 2025-04-30\"" &
+    " -H \"Stripe-Account: " & $connectedAccountID & "\"" &
     " -H \"Content-Type: application/x-www-form-urlencoded\"" &
     " -d \"" & $postData & "\""
 ]

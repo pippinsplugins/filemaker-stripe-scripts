@@ -1,10 +1,17 @@
-# FileMaker Script: Create Stripe Customer
-# Purpose: Creates a new customer in Stripe and stores the customer ID in FileMaker
+# FileMaker Script: Create Stripe Customer (Direct Charge)
+# Purpose: Creates a new customer on the connected Stripe account
 # Stripe API: POST https://api.stripe.com/v1/customers
+# Note: Uses Stripe-Account header to create the customer directly on the connected account
 # ---
 
-# Step 1: Get the Stripe API key
+# Step 1: Get the Stripe API key and connected account ID
 Set Variable [ $apiKey ; Value: GetFieldValue("StripeConfig::ApiKey") ]
+Set Variable [ $connectedAccountID ; Value: ConnectedAccounts::StripeAccountID ]
+
+If [ IsEmpty($connectedAccountID) ]
+    Show Custom Dialog [ "Error" ; "No connected Stripe account found. Connect a Stripe account first." ]
+    Exit Script [ Text Result: "error" ]
+End If
 
 # Step 2: Collect customer data from the current record
 Set Variable [ $email ; Value: Customers::Email ]
@@ -25,6 +32,7 @@ Set Variable [ $curlOptions ; Value:
     "-X POST" &
     " -H \"Authorization: Bearer " & $apiKey & "\"" &
     " -H \"Stripe-Version: 2025-04-30\"" &
+    " -H \"Stripe-Account: " & $connectedAccountID & "\"" &
     " -H \"Content-Type: application/x-www-form-urlencoded\"" &
     " -d \"" & $postData & "\""
 ]

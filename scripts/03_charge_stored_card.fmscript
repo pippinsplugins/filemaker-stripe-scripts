@@ -1,11 +1,11 @@
-# FileMaker Script: Process a Charge to a Stored Card (Stripe Connect)
-# Purpose: Creates a PaymentIntent to charge a stored PaymentMethod,
-#          routing funds to a connected Standard account with an application fee
+# FileMaker Script: Process a Charge to a Stored Card (Direct Charge)
+# Purpose: Creates a PaymentIntent directly on the connected account,
+#          with an application fee sent to the platform
 # Stripe API: POST https://api.stripe.com/v1/payment_intents
 #
-# This uses the PaymentIntents API with Stripe Connect destination charges.
-# The charge is created on the platform, with funds automatically transferred
-# to the connected account minus the application fee.
+# This uses the PaymentIntents API with Stripe Connect direct charges.
+# The charge is created directly on the connected account using the
+# Stripe-Account header. The application fee is collected by the platform.
 # ---
 
 # Step 1: Get the Stripe API key
@@ -63,7 +63,7 @@ If [ IsEmpty($feePercent) ]
 End If
 Set Variable [ $applicationFee ; Value: Round($amount * ($feePercent / 100) ; 0) ]  // in cents
 
-# Step 4: Build the PaymentIntent request with Connect destination charge
+# Step 4: Build the PaymentIntent request (direct charge on connected account)
 Set Variable [ $postData ; Value:
     "amount=" & $amount &
     "&currency=" & $currency &
@@ -72,19 +72,19 @@ Set Variable [ $postData ; Value:
     "&description=" & GetAsURLEncoded($description) &
     "&confirm=true" &
     "&off_session=true" &
-    "&application_fee_amount=" & $applicationFee &
-    "&transfer_data[destination]=" & $connectedAccountID
+    "&application_fee_amount=" & $applicationFee
 ]
 
-# Note: This creates a "destination charge" — the charge is created on the platform
-# account, the customer pays the platform, and Stripe automatically transfers
-# (amount - application_fee_amount) to the connected account.
+# Note: This creates a "direct charge" on the connected account using the
+# Stripe-Account header. The full charge amount goes to the connected account
+# and the application_fee_amount is sent to your platform.
 # off_session=true tells Stripe this is a merchant-initiated charge.
 
 Set Variable [ $curlOptions ; Value:
     "-X POST" &
     " -H \"Authorization: Bearer " & $apiKey & "\"" &
     " -H \"Stripe-Version: 2025-04-30\"" &
+    " -H \"Stripe-Account: " & $connectedAccountID & "\"" &
     " -H \"Content-Type: application/x-www-form-urlencoded\"" &
     " -d \"" & $postData & "\""
 ]
