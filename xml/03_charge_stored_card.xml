@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fmxmlsnippet type="FMObjectList">
+	<Step enable="True" id="89" name="Comment"><Text>Process a Charge to a Stored Card (Stripe Connect)</Text></Step>
+	<Step enable="True" id="89" name="Comment"><Text>Creates a PaymentIntent with destination charge and application fee</Text></Step>
+	<Step enable="True" id="89" name="Comment"><Text>---</Text></Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 1: Get the Stripe API key</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[GetFieldValue ( "StripeConfig::ApiKey" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$apiKey</Name>
+	</Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 2: Get required data</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[Customers::StripeCustomerID]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$customerID</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[Customers::DefaultPaymentMethod]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$paymentMethodID</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[ConnectedAccounts::StripeAccountID]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$connectedAccountID</Name>
+	</Step>
+
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[IsEmpty ( $customerID )]]></Calculation>
+	</Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["Error"]]></Calculation></Title>
+		<Message><Calculation><![CDATA["No Stripe customer ID found. Create the customer in Stripe first."]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="103" name="Exit Script">
+		<Calculation><![CDATA["error"]]></Calculation>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[IsEmpty ( $paymentMethodID )]]></Calculation>
+	</Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["Error"]]></Calculation></Title>
+		<Message><Calculation><![CDATA["No stored payment method found. Add a card first."]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="103" name="Exit Script">
+		<Calculation><![CDATA["error"]]></Calculation>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[IsEmpty ( $connectedAccountID )]]></Calculation>
+	</Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["Error"]]></Calculation></Title>
+		<Message><Calculation><![CDATA["No connected Stripe account found. The merchant must complete Stripe onboarding first."]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="103" name="Exit Script">
+		<Calculation><![CDATA["error"]]></Calculation>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 3: Get charge amount and details</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[Get ( ScriptParameter )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$params</Name>
+	</Step>
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[IsEmpty ( $params )]]></Calculation>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[Round ( Invoices::AmountDue * 100 ; 0 )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$amount</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA["usd"]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$currency</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA["Invoice #" & Invoices::InvoiceNumber]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$description</Name>
+	</Step>
+	<Step enable="True" id="69" name="Else"></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $params ; "amount" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$amount</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $params ; "currency" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$currency</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $params ; "description" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$description</Name>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[$amount < 50]]></Calculation>
+	</Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["Error"]]></Calculation></Title>
+		<Message><Calculation><![CDATA["Charge amount must be at least $0.50 (50 cents)."]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="103" name="Exit Script">
+		<Calculation><![CDATA["error"]]></Calculation>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 3b: Calculate the application fee</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[GetFieldValue ( "StripeConfig::ApplicationFeePercent" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$feePercent</Name>
+	</Step>
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[IsEmpty ( $feePercent )]]></Calculation>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[10]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$feePercent</Name>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[Round ( $amount * ( $feePercent / 100 ) ; 0 )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$applicationFee</Name>
+	</Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 4: Build the PaymentIntent request</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA["amount=" & $amount & "&currency=" & $currency & "&customer=" & $customerID & "&payment_method=" & $paymentMethodID & "&description=" & GetAsURLEncoded ( $description ) & "&confirm=true" & "&off_session=true" & "&application_fee_amount=" & $applicationFee & "&transfer_data[destination]=" & $connectedAccountID]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$postData</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA["-X POST" & " -H \"Authorization: Bearer " & $apiKey & "\"" & " -H \"Stripe-Version: 2025-04-30\"" & " -H \"Content-Type: application/x-www-form-urlencoded\"" & " -d \"" & $postData & "\""]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$curlOptions</Name>
+	</Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 5: Create and confirm the PaymentIntent</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[""]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$response</Name>
+	</Step>
+	<Step enable="True" id="136" name="Insert from URL">
+		<SelectAll state="True"/>
+		<NoDialog state="True"/>
+		<Target><Variable value="$response"/></Target>
+		<URL><Calculation><![CDATA["https://api.stripe.com/v1/payment_intents"]]></Calculation></URL>
+		<cURLOptions><Calculation><![CDATA[$curlOptions]]></Calculation></cURLOptions>
+	</Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 6: Check for errors</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $response ; "error.message" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$errorMessage</Name>
+	</Step>
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[not IsEmpty ( $errorMessage )]]></Calculation>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $response ; "error.code" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$errorCode</Name>
+	</Step>
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[$errorCode = "authentication_required"]]></Calculation>
+	</Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["Authentication Required"]]></Calculation></Title>
+		<Message><Calculation><![CDATA["This card requires additional authentication. The customer must complete this payment through a web interface."]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="69" name="Else"></Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["Stripe Error"]]></Calculation></Title>
+		<Message><Calculation><![CDATA["Payment failed: " & $errorMessage]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+	<Step enable="True" id="103" name="Exit Script">
+		<Calculation><![CDATA["error"]]></Calculation>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 7: Check the PaymentIntent status</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $response ; "status" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$status</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $response ; "id" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$paymentIntentID</Name>
+	</Step>
+
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[$status = "succeeded"]]></Calculation>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $response ; "latest_charge" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$chargeID</Name>
+	</Step>
+	<Step enable="True" id="6" name="Go to Layout">
+		<Layout id="0" name="Payments"/>
+		<Animation value="None"/>
+	</Step>
+	<Step enable="True" id="56" name="New Record/Request"></Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="Payments" id="0" name="StripePaymentIntentID"/>
+		<Calculation><![CDATA[$paymentIntentID]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="Payments" id="0" name="StripeChargeID"/>
+		<Calculation><![CDATA[$chargeID]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="Payments" id="0" name="CustomerID_FK"/>
+		<Calculation><![CDATA[Customers::CustomerID]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="Payments" id="0" name="ConnectedAccountID"/>
+		<Calculation><![CDATA[$connectedAccountID]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="Payments" id="0" name="Amount"/>
+		<Calculation><![CDATA[$amount / 100]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="Payments" id="0" name="ApplicationFee"/>
+		<Calculation><![CDATA[$applicationFee / 100]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="Payments" id="0" name="NetToConnectedAccount"/>
+		<Calculation><![CDATA[( $amount - $applicationFee ) / 100]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="Payments" id="0" name="Currency"/>
+		<Calculation><![CDATA[$currency]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="Payments" id="0" name="Status"/>
+		<Calculation><![CDATA["succeeded"]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="Payments" id="0" name="Description"/>
+		<Calculation><![CDATA[$description]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="Payments" id="0" name="PaymentDate"/>
+		<Calculation><![CDATA[Get ( CurrentTimestamp )]]></Calculation>
+	</Step>
+	<Step enable="True" id="75" name="Commit Records/Requests">
+		<NoDialog state="True"/>
+	</Step>
+	<Step enable="True" id="6" name="Go to Layout">
+		<Layout id="0" name="" destination="OriginalLayout"/>
+	</Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["Payment Successful"]]></Calculation></Title>
+		<Message><Calculation><![CDATA["Charged " & NumToJText ( $amount / 100 ; 1 ; 2 ) & " " & Upper ( $currency ) & ¶ & "Payment ID: " & $paymentIntentID]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="125" name="Else If">
+		<Calculation><![CDATA[$status = "requires_action"]]></Calculation>
+	</Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["Action Required"]]></Calculation></Title>
+		<Message><Calculation><![CDATA["This payment requires additional customer authentication (3D Secure). Payment ID: " & $paymentIntentID]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="69" name="Else"></Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["Payment Status"]]></Calculation></Title>
+		<Message><Calculation><![CDATA["Payment status: " & $status & ¶ & "Payment ID: " & $paymentIntentID]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+
+	<Step enable="True" id="103" name="Exit Script">
+		<Calculation><![CDATA[$paymentIntentID]]></Calculation>
+	</Step>
+</fmxmlsnippet>

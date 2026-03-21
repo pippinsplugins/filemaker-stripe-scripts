@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fmxmlsnippet type="FMObjectList">
+	<Step enable="True" id="89" name="Comment"><Text>Retrieve List of Stored Cards</Text></Step>
+	<Step enable="True" id="89" name="Comment"><Text>Gets all PaymentMethods attached to a Stripe customer and syncs to FileMaker</Text></Step>
+	<Step enable="True" id="89" name="Comment"><Text>---</Text></Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 1: Get the Stripe API key</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[GetFieldValue ( "StripeConfig::ApiKey" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$apiKey</Name>
+	</Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 2: Get the customer's Stripe ID</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[Customers::StripeCustomerID]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$customerID</Name>
+	</Step>
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[IsEmpty ( $customerID )]]></Calculation>
+	</Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["Error"]]></Calculation></Title>
+		<Message><Calculation><![CDATA["No Stripe customer ID found. Create the customer in Stripe first."]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="103" name="Exit Script">
+		<Calculation><![CDATA["error"]]></Calculation>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 3: Build the request</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA["https://api.stripe.com/v1/payment_methods" & "?customer=" & $customerID & "&type=card" & "&limit=100"]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$url</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA["-X GET" & " -H \"Authorization: Bearer " & $apiKey & "\"" & " -H \"Stripe-Version: 2025-04-30\""]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$curlOptions</Name>
+	</Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 4: Call the Stripe API</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[""]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$response</Name>
+	</Step>
+	<Step enable="True" id="136" name="Insert from URL">
+		<SelectAll state="True"/>
+		<NoDialog state="True"/>
+		<Target><Variable value="$response"/></Target>
+		<URL><Calculation><![CDATA[$url]]></Calculation></URL>
+		<cURLOptions><Calculation><![CDATA[$curlOptions]]></Calculation></cURLOptions>
+	</Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 5: Check for errors</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $response ; "error.message" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$errorMessage</Name>
+	</Step>
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[not IsEmpty ( $errorMessage )]]></Calculation>
+	</Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["Stripe Error"]]></Calculation></Title>
+		<Message><Calculation><![CDATA["Failed to retrieve cards: " & $errorMessage]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="103" name="Exit Script">
+		<Calculation><![CDATA["error"]]></Calculation>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 6: Parse the response</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[ValueCount ( JSONListKeys ( $response ; "data" ; JSONNumber ) )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$cardCount</Name>
+	</Step>
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[$cardCount = 0]]></Calculation>
+	</Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["No Cards"]]></Calculation></Title>
+		<Message><Calculation><![CDATA["This customer has no stored cards in Stripe."]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="103" name="Exit Script">
+		<Calculation><![CDATA["none"]]></Calculation>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 7: Get the customer's default payment method</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA["https://api.stripe.com/v1/customers/" & $customerID]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$defaultPMUrl</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[""]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$custResponse</Name>
+	</Step>
+	<Step enable="True" id="136" name="Insert from URL">
+		<SelectAll state="True"/>
+		<NoDialog state="True"/>
+		<Target><Variable value="$custResponse"/></Target>
+		<URL><Calculation><![CDATA[$defaultPMUrl]]></Calculation></URL>
+		<cURLOptions><Calculation><![CDATA[$curlOptions]]></Calculation></cURLOptions>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $custResponse ; "invoice_settings.default_payment_method" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$defaultPM</Name>
+	</Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 8: Sync cards to FileMaker - clear existing</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[Get ( LayoutName )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$currentLayout</Name>
+	</Step>
+	<Step enable="True" id="6" name="Go to Layout">
+		<Layout id="0" name="PaymentMethods"/>
+		<Animation value="None"/>
+	</Step>
+	<Step enable="True" id="22" name="Enter Find Mode">
+		<Pause state="False"/>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="PaymentMethods" id="0" name="StripeCustomerID"/>
+		<Calculation><![CDATA[$customerID]]></Calculation>
+	</Step>
+	<Step enable="True" id="28" name="Perform Find"></Step>
+	<Step enable="True" id="68" name="If">
+		<Calculation><![CDATA[Get ( FoundCount ) > 0]]></Calculation>
+	</Step>
+	<Step enable="True" id="148" name="Delete All Records">
+		<NoDialog state="True"/>
+	</Step>
+	<Step enable="True" id="70" name="End If"></Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 9: Loop through each card</Text></Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[0]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$i</Name>
+	</Step>
+	<Step enable="True" id="71" name="Loop"></Step>
+	<Step enable="True" id="72" name="Exit Loop If">
+		<Calculation><![CDATA[$i >= $cardCount]]></Calculation>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $response ; "data[" & $i & "].id" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$pmID</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $response ; "data[" & $i & "].card.last4" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$last4</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $response ; "data[" & $i & "].card.brand" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$brand</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $response ; "data[" & $i & "].card.exp_month" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$expMonth</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $response ; "data[" & $i & "].card.exp_year" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$expYear</Name>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[JSONGetElement ( $response ; "data[" & $i & "].billing_details.name" )]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$billingName</Name>
+	</Step>
+	<Step enable="True" id="56" name="New Record/Request"></Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="PaymentMethods" id="0" name="StripePaymentMethodID"/>
+		<Calculation><![CDATA[$pmID]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="PaymentMethods" id="0" name="CustomerID_FK"/>
+		<Calculation><![CDATA[Customers::CustomerID]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="PaymentMethods" id="0" name="StripeCustomerID"/>
+		<Calculation><![CDATA[$customerID]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="PaymentMethods" id="0" name="CardLast4"/>
+		<Calculation><![CDATA[$last4]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="PaymentMethods" id="0" name="CardBrand"/>
+		<Calculation><![CDATA[$brand]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="PaymentMethods" id="0" name="CardExpMonth"/>
+		<Calculation><![CDATA[$expMonth]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="PaymentMethods" id="0" name="CardExpYear"/>
+		<Calculation><![CDATA[$expYear]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="PaymentMethods" id="0" name="BillingName"/>
+		<Calculation><![CDATA[$billingName]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="PaymentMethods" id="0" name="IsDefault"/>
+		<Calculation><![CDATA[If ( $pmID = $defaultPM ; 1 ; 0 )]]></Calculation>
+	</Step>
+	<Step enable="True" id="75" name="Commit Records/Requests">
+		<NoDialog state="True"/>
+	</Step>
+	<Step enable="True" id="141" name="Set Variable">
+		<Value><Calculation><![CDATA[$i + 1]]></Calculation></Value>
+		<Repetition><Calculation><![CDATA[1]]></Calculation></Repetition>
+		<Name>$i</Name>
+	</Step>
+	<Step enable="True" id="73" name="End Loop"></Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 10: Return to original layout and update default</Text></Step>
+	<Step enable="True" id="6" name="Go to Layout">
+		<Layout id="0" name="" destination="ByCalc"/>
+		<Calculation><![CDATA[$currentLayout]]></Calculation>
+	</Step>
+	<Step enable="True" id="76" name="Set Field">
+		<Field table="Customers" id="0" name="DefaultPaymentMethod"/>
+		<Calculation><![CDATA[$defaultPM]]></Calculation>
+	</Step>
+	<Step enable="True" id="75" name="Commit Records/Requests">
+		<NoDialog state="True"/>
+	</Step>
+
+	<Step enable="True" id="89" name="Comment"><Text>Step 11: Report results</Text></Step>
+	<Step enable="True" id="87" name="Show Custom Dialog">
+		<Title><Calculation><![CDATA["Cards Retrieved"]]></Calculation></Title>
+		<Message><Calculation><![CDATA[$cardCount & " card(s) found and synced to FileMaker."]]></Calculation></Message>
+		<Buttons><Button><Name>OK</Name><CommitChanges>Yes</CommitChanges></Button></Buttons>
+	</Step>
+	<Step enable="True" id="103" name="Exit Script">
+		<Calculation><![CDATA[$cardCount]]></Calculation>
+	</Step>
+</fmxmlsnippet>
